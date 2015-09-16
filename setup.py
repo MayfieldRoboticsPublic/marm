@@ -1,0 +1,94 @@
+import re
+import setuptools.command.test
+import subprocess
+
+import Cython.Build
+
+
+class PyTest(setuptools.command.test.test):
+
+    user_options = []
+
+    def finalize_options(self):
+        setuptools.command.test.test.finalize_options(self)
+        self.test_args = []
+        self.test_suite = True
+
+    def run_tests(self):
+        # import here, cause outside the eggs aren't loaded
+        import pytest
+
+        pytest.main(self.test_args)
+
+version = (
+    re
+    .compile(r".*__version__ = '(.*?)'", re.S)
+    .match(open('lib/marm/__init__.py').read())
+    .group(1)
+)
+
+packages = setuptools.find_packages('lib/')
+
+scripts = [
+    'script/marm'
+]
+
+ext_modules = Cython.Build.cythonize([
+    setuptools.Extension(
+        'marm.ext',
+        ['ext/gen.c', 'ext/mux.c', 'ext/stat.c', 'ext/ext.pyx'],
+        include_dirs=['ext/'],
+        extra_compile_args=(
+            ['-g', '-O0'] +
+            subprocess.check_output(['pkg-config', '--cflags', 'libavformat']).strip().split() +
+            subprocess.check_output(['pkg-config', '--cflags', 'libavcodec']).strip().split() +
+            subprocess.check_output(['pkg-config', '--cflags', 'libswscale']).strip().split() +
+            subprocess.check_output(['pkg-config', '--cflags', 'libavutil']).strip().split()
+        ),
+        extra_link_args=(
+            subprocess.check_output(['pkg-config', '--libs', 'libavformat']).strip().split() +
+            subprocess.check_output(['pkg-config', '--libs', 'libavcodec']).strip().split() +
+            subprocess.check_output(['pkg-config', '--libs', 'libswscale']).strip().split() +
+            subprocess.check_output(['pkg-config', '--libs', 'libavutil']).strip().split()
+        )
+    )
+])
+
+extras_require = {
+    'test': [
+        'pytest >=2.5.2,<3',
+        'pytest-cache >=1.0,<2',
+        'pytest-cov >=1.7,<2',
+        'pytest-pep8 >=1.0.6,<2',
+    ],
+}
+
+setuptools.setup(
+    name='marm',
+    version=version,
+    url='https://github.com/mayfieldrobotics/armux/',
+    author='Mayfield Robotics',
+    author_email='dev+armux@mayfieldrobotics.com',
+    license='MIT',
+    description='Frontend for muxing archived RTP streams using libavformat.',
+    long_description=open('README.rst').read(),
+    package_dir={'': 'lib'},
+    packages=packages,
+    scripts=scripts,
+    ext_modules=ext_modules,
+    platforms='any',
+    install_requires=[
+        'cython >=0.23,<0.24',
+        'pypcapfile >=0.10,<0.11',
+    ],
+    tests_require=extras_require['test'],
+    extras_require=extras_require,
+    cmdclass={'test': PyTest},
+    classifiers=[
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: BSD License',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python',
+        'Topic :: Software Development :: Libraries :: Python Modules'
+    ]
+)
