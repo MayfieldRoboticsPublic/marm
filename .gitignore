@@ -1,5 +1,5 @@
 *.o
 *.so
-test*.py
+test?.py
 build/
 data/
