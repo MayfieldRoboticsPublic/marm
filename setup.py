@@ -2,15 +2,12 @@ import re
 import setuptools.command.test
 import subprocess
 
-import Cython.Build
-
 
 class PyTest(setuptools.command.test.test):
 
     user_options = []
 
     def finalize_options(self):
-        setuptools.command.test.test.finalize_options(self)
         self.test_args = []
         self.test_suite = True
 
@@ -23,21 +20,21 @@ class PyTest(setuptools.command.test.test):
 version = (
     re
     .compile(r".*__version__ = '(.*?)'", re.S)
-    .match(open('lib/marm/__init__.py').read())
+    .match(open('marm/__init__.py').read())
     .group(1)
 )
 
-packages = setuptools.find_packages('lib/')
+packages = setuptools.find_packages('')
 
 scripts = [
     'script/marm'
 ]
 
-ext_modules = Cython.Build.cythonize([
+ext_modules = [
     setuptools.Extension(
         'marm.ext',
-        ['ext/gen.c', 'ext/mux.c', 'ext/stat.c', 'ext/ext.pyx'],
-        include_dirs=['ext/'],
+        ['marm/ext/gen.c', 'marm/ext/mux.c', 'marm/ext/stat.c', 'marm/ext/ext.pyx'],
+        include_dirs=['marm/ext/'],
         extra_compile_args=(
             ['-g', '-O0'] +
             subprocess.check_output(['pkg-config', '--cflags', 'libavformat']).strip().split() +
@@ -52,7 +49,13 @@ ext_modules = Cython.Build.cythonize([
             subprocess.check_output(['pkg-config', '--libs', 'libavutil']).strip().split()
         )
     )
-])
+]
+try:
+    import Cython.Build
+    ext_modules = Cython.Build.cythonize(ext_modules)
+except ImportError:
+    pass
+
 
 extras_require = {
     'test': [
@@ -72,14 +75,12 @@ setuptools.setup(
     license='MIT',
     description='Frontend for muxing archived RTP streams using libavformat.',
     long_description=open('README.rst').read(),
-    package_dir={'': 'lib'},
     packages=packages,
     scripts=scripts,
     ext_modules=ext_modules,
     platforms='any',
     install_requires=[
-        'cython >=0.23,<0.24',
-        'pypcapfile >=0.10,<0.11',
+        'dpkt >=1.8,<2',
     ],
     tests_require=extras_require['test'],
     extras_require=extras_require,

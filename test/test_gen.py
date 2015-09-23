@@ -8,7 +8,7 @@ import marm
         ('mpeg4', 11, 320, 240, 25, 275),
         ('mpeg4', 5, 640, 480, 30, 150),
     ])
-def test_gen_video(
+def test_gen_video_frames(
             tmpdir,
             encoder_name,
             duration,
@@ -19,7 +19,7 @@ def test_gen_video(
         ):
     path = tmpdir.join('v.{0}'.format(encoder_name))
     with path.open('wb') as fo:
-        marm.generate_video(
+        marm.gen_video_frames(
                 fo,
                 duration=duration,
                 width=width,
@@ -27,8 +27,8 @@ def test_gen_video(
                 frame_rate=frame_rate
             )
     with path.open('rb') as fo:
-        a = marm.MARM(fo)
-        assert a.header() == marm.MARM.VideoHeader(
+        header = marm.raw.read_header(fo)
+        assert header == marm.raw.VideoHeader(
             encoder_name=encoder_name,
             pix_fmt=0,
             width=width,
@@ -37,7 +37,7 @@ def test_gen_video(
             frame_rate=frame_rate,
         )
         c = 0
-        for f in a.packets():
+        for _ in marm.raw.read_frames(fo):
             c += 1
         assert c == frame_count
 
@@ -47,7 +47,7 @@ def test_gen_video(
         ('flac', 11, 96000, 48000, 115),
         ('flac', 5, 128000, 44100, 48),
     ])
-def test_gen_audio(
+def test_gen_audio_frames(
             tmpdir,
             encoder_name,
             duration,
@@ -57,7 +57,7 @@ def test_gen_audio(
         ):
     path = tmpdir.join('a.{0}'.format(encoder_name))
     with path.open('wb') as fo:
-        marm.generate_audio(
+        marm.gen_audio_frames(
                 fo,
                 duration=duration,
                 bit_rate=bit_rate,
@@ -65,13 +65,13 @@ def test_gen_audio(
             )
 
     with path.open('rb') as fo:
-        a = marm.MARM(fo)
-        assert a.header() == marm.MARM.AudioHeader(
+        header = marm.raw.read_header(fo)
+        assert header == marm.raw.AudioHeader(
             encoder_name=encoder_name,
             bit_rate=bit_rate,
             sample_rate=sample_rate,
         )
         c = 0
-        for f in a.packets():
+        for _ in marm.raw.read_frames(fo):
             c += 1
         assert c == frame_count

@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 
+import py
 import pytest
 
 
@@ -34,3 +35,8 @@ def config_logging(pytestconfig, log_level, log_file):
         stream=sys.stderr,
     )
 
+
+@pytest.fixture(scope='session')
+def fixtures():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures')
+    return py.path.local(path)
