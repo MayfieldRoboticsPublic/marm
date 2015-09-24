@@ -5,9 +5,10 @@ import marm
 
 @pytest.mark.parametrize(
     ('capture,pt,ssrc,packet_type,expected'), [
-    ('streets-of-rage.pcap', 100, 3830765780, marm.vp8.VP8RTPPacket, 1239),
-    ('streets-of-rage.pcap', 111, 4286666423, marm.opus.OpusRTPPacket, 490),
-])
+        ('streets-of-rage.pcap', 100, 3830765780, marm.vp8.VP8RTPPacket, 1239),
+        ('streets-of-rage.pcap', 111, 4286666423, marm.opus.OpusRTPPacket,
+         490),
+    ])
 def test_extract_frames_from_pcap(
         fixtures,
         capture,
@@ -38,12 +39,12 @@ def test_extract_frames_from_pcap(
      'v_pt,v_ssrc,v_pkt_type,v_enc,'
      'fmt,'
      'expected'), [
-    ('streets-of-rage.pcap',
-     111, 4286666423, marm.opus.OpusRTPPacket, 'libopus',
-     100, 3830765780, marm.vp8.VP8RTPPacket, 'libvpx',
-     'mkv',
-     0),
-])
+        ('streets-of-rage.pcap',
+         111, 4286666423, marm.opus.OpusRTPPacket, 'libopus',
+         100, 3830765780, marm.vp8.VP8RTPPacket, 'libvpx',
+         'mkv',
+         0),
+    ])
 def test_mux_frames_from_pcap(
         tmpdir,
         fixtures,
@@ -88,6 +89,7 @@ def test_mux_frames_from_pcap(
                 'encoder_name': a_enc,
                 'bit_rate': 96000,
                 'sample_rate': 48000,
+                'time_base': (1, 1000),
             },
             audio_packets=marm.Frames(a_pkts),
             video_profile={
@@ -97,7 +99,7 @@ def test_mux_frames_from_pcap(
                 'height': v_height,
                 'frame_rate': v_frame_rate,
                 'bit_rate': 4000000,
-
+                'time_base': (1, 1000),
             },
             video_packets=marm.VideoFrames(v_pkts),
         )

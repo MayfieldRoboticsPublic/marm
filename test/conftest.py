@@ -40,3 +40,8 @@ def config_logging(pytestconfig, log_level, log_file):
 def fixtures():
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures')
     return py.path.local(path)
+
+
+@pytest.fixture(scope='session')
+def ffmpeg():
+    return 'ffmpeg'

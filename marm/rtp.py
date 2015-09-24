@@ -235,9 +235,11 @@ class RTPCursor(collections.Iterator):
     """
     """
 
-    def __init__(self, part_type, parts):
+    def __init__(self, parts, part_type, **part_kwargs):
         self.part_type = part_type
-        self.parts = [self._Part(part_type, part) for part in parts]
+        self.parts = [
+            self._Part(part, part_type, part_kwargs) for part in parts
+        ]
         self.pos_part, self.pos_pkt = 0, 0
         if self.parts:
             self.part = self.parts[self.pos_part]
@@ -346,6 +348,18 @@ class RTPCursor(collections.Iterator):
             'forward'
         )
 
+    def prev_start_of_frame(self):
+        return self.search(
+            lambda pkt: pkt.data.is_start_of_frame and pkt.data.is_start_of_frame,
+            'backward'
+        )
+
+    def next_start_of_frame(self):
+        return self.search(
+            lambda pkt: pkt.data.is_start_of_frame and pkt.data.is_start_of_frame,
+            'forward'
+        )
+
     def fastforward(self, secs):
         start = self.current().secs
         match = lambda pkt: pkt.secs - start >= secs
@@ -400,9 +414,10 @@ class RTPCursor(collections.Iterator):
 
     class _Part(collections.Sequence):
 
-        def __init__(self, type, file):
-            self.type = type
+        def __init__(self, file, part_type, part_kwargs):
             self.file = file
+            self.part_type = part_type
+            self.part_kwargs = part_kwargs
             self.fo = None
             self.pkts = None
             self.idx = []
@@ -414,7 +429,7 @@ class RTPCursor(collections.Iterator):
             else:
                 self.fo = self.file
                 self.fo.seek(0)
-            self.pkts = self.type(self.fo)
+            self.pkts = self.part_type(self.fo, **self.part_kwargs)
             for pos in self.pkts.index():
                 self.idx.append(pos)
 
@@ -495,6 +510,11 @@ class RTPCursor(collections.Iterator):
 
 def head_packets(packets, count=None, duration=None):
     """
+    Iterator for first n packets where n is capped by a:
+    
+    - packet count and/or
+    - duration in seconds
+    
     """
     s = {
         'epoch': None,
@@ -522,6 +542,8 @@ def head_packets(packets, count=None, duration=None):
 
 def probe_video_dimensions(packets):
     """
+    Finds first start-of-frame packet and extracts video width and height from
+    it.
     """
     while True:
         pkt = packets.next()
@@ -531,6 +553,8 @@ def probe_video_dimensions(packets):
 
 def estimate_video_frame_rate(packets, window=10):
     """
+    Finds `window` start-of-frame packets and uses their timestamps to estimate
+    video frame rate. 
     """
     ts = []
     while len(ts) < window:
@@ -538,3 +562,69 @@ def estimate_video_frame_rate(packets, window=10):
         if pkt.data.is_start_of_frame:
             ts.append(pkt.secs)
     return (len(ts) - 1) / (ts[-1] - ts[0])
+
+
+def split_packets(packets, duration=None, count=None):
+    """
+    Splits packets into n-sized packet chunks where n is capped by a:
+    
+    - packet count and/or
+    - duration in seconds
+    
+    """
+
+    # slice
+
+    s = {
+        'epoch': None,
+        'count': 0,
+        'last': None
+    }
+
+    def _duration(pkt):
+        if s['epoch'] is None:
+            s['epoch'] = pkt.secs
+        return pkt.secs - s['epoch'] < duration
+
+    def _count(pkt):
+        s['count'] += 1
+        return s['count'] < count
+
+    ps = []
+    if duration is not None:
+        ps.append(_duration)
+    if count is not None:
+        ps.append(_count)
+    _predicate = lambda pkt: all(p(pkt) for p in ps)
+
+    def _slice():
+        if s['last']:
+            pkt, s['last'] = s['last'], None
+        else:
+            pkt = packets.next()
+        if not _predicate(pkt):
+            s['last'] = pkt
+            return
+        yield pkt
+        while True:
+            pkt = packets.next()
+            if not _predicate(pkt):
+                s['last'] = pkt
+                break
+            yield pkt
+
+    # slices
+
+    while True:
+        # reset state
+        s['epoch'] = None
+        s['count'] = 0
+
+        # slice
+        pkts = _slice()
+        try:
+            pkt = pkts.next()
+        except StopIteration:
+            # nothing so we're done
+            break
+        yield itertools.chain([pkt], pkts)

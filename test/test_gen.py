@@ -4,7 +4,7 @@ import marm
 
 
 @pytest.mark.parametrize(
-        'encoder_name,duration,width,height,frame_rate,frame_count', [
+    'encoder_name,duration,width,height,frame_rate,frame_count', [
         ('mpeg4', 11, 320, 240, 25, 275),
         ('mpeg4', 5, 640, 480, 30, 150),
     ])
@@ -43,7 +43,7 @@ def test_gen_video_frames(
 
 
 @pytest.mark.parametrize(
-        'encoder_name,duration,bit_rate,sample_rate,frame_count', [
+    'encoder_name,duration,bit_rate,sample_rate,frame_count', [
         ('flac', 11, 96000, 48000, 115),
         ('flac', 5, 128000, 44100, 48),
     ])

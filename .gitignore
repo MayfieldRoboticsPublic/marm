@@ -1,5 +1,5 @@
 *.o
 *.so
-ext/ext.c
-build/
-data/
+marm/ext/ext.c
+/build
+/data

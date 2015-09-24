@@ -22,20 +22,10 @@ class Frame(object):
                 raise TypeError('Mixed positional and keyword arguments')
             elif len(args) > 1:
                 raise TypeError('Expected single \'buf\' arg')
-            unpack = (
-                self.unpacks
-                if isinstance(args[0], basestring)
-                else self.unpack
-            )
-            unpack(args[0])
+            self.unpack(args[0])
         elif kwargs:
             if len(kwargs) == 1 and 'buf' in kwargs:
-                unpack = (
-                    self.unpack
-                    if isinstance(args[0], basestring)
-                    else self.unpacks
-                )
-                unpack(kwargs['buf'])
+                self.unpack(kwargs['buf'])
             else:
                 self.pts, self.flags, self.data = 0, 0, ''
                 for k, v in kwargs.iteritems():
@@ -43,30 +33,25 @@ class Frame(object):
                         raise TypeError('Unexpected keyword argument \'{0}\''.format(k))
                     setattr(self, k, v)
 
-    def unpack(self, io):
+    def unpack(self, buf):
+        fo = StringIO.StringIO(buf) if isinstance(buf, basestring) else buf
         fmt = '=qii'
         size = struct.calcsize(fmt)
-        b = io.read(size)
+        b = fo.read(size)
         if len(b) != size:
-            raise ValueError('Failed to read {0} bytes for "{1}" at {2}.'.format(size, fmt, io.tell()))
+            raise ValueError('Failed to read {0} bytes for "{1}" at {2}.'.format(size, fmt, fo.tell()))
         pts, flags, data_size = struct.unpack(fmt, b)
-        data = io.read(data_size)
+        data = fo.read(data_size)
         if len(data) != data_size:
-            raise ValueError('Failed to read {0} byte packet data at {1}.'.format(data_size, io.tell()))
+            raise ValueError('Failed to read {0} byte packet data at {1}.'.format(data_size, fo.tell()))
         self.pts, self.flags, self.data = pts, flags, data
-    
-    def unpacks(self, buf):
-        io = StringIO.StringIO(buf)
-        return self.unpack(io)
 
-    def pack(self, io):
-        io.write(struct.pack('=qii', self.pts, self.flags, len(self.data)))
-        io.write(self.data)
-        
-    def packs(self):
-        io = StringIO.StringIO()
-        self.pack(io)
-        return io.getvalue()
+    def pack(self, fo=None):
+        fo, value = StringIO.StringIO(), True if fo is None else fo, False
+        fo.write(struct.pack('=qii', self.pts, self.flags, len(self.data)))
+        fo.write(self.data)
+        if value:
+            return fo.getvalue()
 
 
 class Frames(collections.Iterator):
@@ -196,15 +181,15 @@ class VideoFrames(collections.Iterator):
             flags |= VideoFrame.FLAG_KEY_FRAME
 
         # data
-        io = StringIO.StringIO()
-        io.write(first.data.data)
+        fo = StringIO.StringIO()
+        fo.write(first.data.data)
         for self.packet in self.packets:
             if self.packet.data.is_start_of_frame:
                 break
-            io.write(self.packet.data.data)
+            fo.write(self.packet.data.data)
         else:
             self.packet = None
-        data = io.getvalue()
+        data = fo.getvalue()
 
         return VideoFrame(pts=pts, flags=flags, data=data)
 
@@ -231,7 +216,7 @@ class VideoFrames(collections.Iterator):
 Codec = ext.Codec
 
 
-# Iterates `ext.Codec`s registered w/ libav*.
+# Iterates `ext.Codec`s registered with libav*.
 codecs = ext.codecs
 
 

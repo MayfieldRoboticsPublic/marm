@@ -200,7 +200,7 @@ cdef int read_packet(void *obj, libavcodec.AVPacket *av_packet):
     cdef int flags
     cdef object data
     cdef int size
-    
+
     try:
         packet = (<object>obj).next()
     except StopIteration:
