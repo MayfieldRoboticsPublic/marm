@@ -1,4 +1,5 @@
 import logging
+import multiprocessing.dummy
 import os
 import sys
 
@@ -45,3 +46,8 @@ def fixtures():
 @pytest.fixture(scope='session')
 def ffmpeg():
     return 'ffmpeg'
+
+
+@pytest.fixture()
+def pool():
+    return multiprocessing.dummy.Pool(multiprocessing.cpu_count())

@@ -2,6 +2,7 @@ from __future__ import division
 
 import abc
 import collections
+import contextlib
 import copy
 import ctypes
 import inspect
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class RTPHeader(ctypes.BigEndianStructure):
     """
-    https://tools.ietf.org/html/rfc3550#section-5.1
+    See https://tools.ietf.org/html/rfc3550#section-5.1
     """
 
     _pack_ = 1
@@ -37,8 +38,10 @@ class RTPHeader(ctypes.BigEndianStructure):
 
 class RTPTimeMixin(object):
     """
+    `RTPPacket` mixin used to compute timing information. 
     """
 
+    # In Hz (e.g. 48000).
     clock_rate = None
 
     @property
@@ -56,6 +59,8 @@ class RTPTimeMixin(object):
 
 class RTPPayload(object):
     """
+    RTP payload interface. It is implemented and associated w/ an `RTPPacket`
+    type via `RTPPacket.payload_type`.
     """
 
     @abc.abstractmethod
@@ -69,6 +74,7 @@ class RTPPayload(object):
 
 class RTPVideoPayloadMixin(object):
     """
+    `RTPPayload` mixin used to query video information.
     """
 
     @abc.abstractproperty
@@ -90,7 +96,33 @@ class RTPVideoPayloadMixin(object):
 
 class RTPPacket(object):
     """
+    Represents an RTP packet. You typically inherit from this an provide a:
+
+    - `type` and
+    - `payload_type`
+
+    based on the type of media, e.g. for VP8 video:
+
+    .. code:: python
+
+        class VP8RTPPacket(rtp.RTPTimeMixin, rtp.RTPPacket):
+
+            # rtp.RTPPacket
+        
+            type = rtp.RTPPacket.VIDEO_TYPE
+        
+            payload_type = VP8RTPPayload
+        
+            # RTPTimeMixin
+        
+            clock_rate = 90000
+
     """
+    
+    AUDIO_TYPE = 'audio'
+    VIDEO_TYPE = 'video'
+
+    type = None
 
     payload_type = None
 
@@ -166,14 +198,20 @@ class RTPPacket(object):
         self.pad = pad
 
 
-class RTPPacketReader(collections.Iterator):
+class RTPPacketReader(collections.Iterable):
     """
+    Interface for:
+    
+    - indexing and
+    - reading
+    
+    archived/stored `RTPPacket`s.
     """
 
-    #
+    # Default `RTPPacket` type.
     packet_type = RTPPacket
 
-    #
+    # Registry for mapping extensions to `RTPPacketReader` implementations.
     formats = {
     }
     
@@ -206,7 +244,7 @@ class RTPPacketReader(collections.Iterator):
         self.packet_type = kwargs.pop('packet_type', self.packet_type)
         if self.packet_type is None:
             raise Exception('Missing packet_type= and no default for {0}.'.format(self.__name__))
-        self.packet_filter = kwargs.pop('packet_filter', lambda pkt: True)
+        self.packet_filter = kwargs.pop('packet_filter', None) or (lambda pkt: True)
         if len(args) == 1 and not isinstance(args[0], basestring) and not kwargs:
             self.fo = args[0]
         else:
@@ -215,7 +253,7 @@ class RTPPacketReader(collections.Iterator):
 
     def index(self, restore=True):
         """
-        Generator yielding positions in backing file object.
+        Generator yielding positions in file object.
         """
         org = pos = self.fo.tell()
         for _ in self:
@@ -224,15 +262,24 @@ class RTPPacketReader(collections.Iterator):
         if restore:
             self.fo.seek(org)
 
-    def reset(self, restore=True):
+    def reset(self):
         """
-        Resets file object to initial position.
+        Resets file object to initial packet position.
         """
         self.fo.seek(self.org)
+
+    @contextlib.contextmanager
+    def restoring(self):
+        pos = self.tell()
+        try:
+            yield
+        finally:
+            self.seek(pos)
 
 
 class RTPCursor(collections.Iterator):
     """
+    Cursor used to iterate over a collection or stored `RTPPacket`s.
     """
 
     def __init__(self, parts, part_type, **part_kwargs):
@@ -400,6 +447,15 @@ class RTPCursor(collections.Iterator):
         )
         obj.seek(self.tell())
         return obj
+    
+    
+    @contextlib.contextmanager
+    def restoring(self):
+        pos = self.tell()
+        try:
+            yield
+        finally:
+            self.seek(pos)
 
     # collections.Iterator
     
@@ -420,6 +476,7 @@ class RTPCursor(collections.Iterator):
             self.part_kwargs = part_kwargs
             self.fo = None
             self.pkts = None
+            self.i = None
             self.idx = []
 
         def open(self):
@@ -432,21 +489,23 @@ class RTPCursor(collections.Iterator):
             self.pkts = self.part_type(self.fo, **self.part_kwargs)
             for pos in self.pkts.index():
                 self.idx.append(pos)
+            self.i = iter(self.pkts)
 
         def close(self):
             if self.fo:
                 self.fo.close()
                 self.fo = None
             self.pkts = None
+            self.i = None
             del self.idx[:]
 
         @property
         def name(self):
             return (
-                    self.file
-                    if isinstance(self.file, basestring)
-                    else getattr(self.file, 'name', '<memory>')
-                )
+                self.file
+                if isinstance(self.file, basestring)
+                else getattr(self.file, 'name', '<memory>')
+            )
         
         @property
         def is_opened(self):
@@ -460,7 +519,7 @@ class RTPCursor(collections.Iterator):
             if self.is_closed:
                 self.open()
             self.fo.seek(self.idx[i], os.SEEK_SET)
-            return self.pkts.next()
+            return self.i.next()
 
         # collections.Sequence
 
@@ -545,8 +604,7 @@ def probe_video_dimensions(packets):
     Finds first start-of-frame packet and extracts video width and height from
     it.
     """
-    while True:
-        pkt = packets.next()
+    for pkt in packets:
         if pkt.data.is_start_of_frame and pkt.data.is_key_frame:
             return pkt.data.width, pkt.data.height
 
@@ -557,8 +615,9 @@ def estimate_video_frame_rate(packets, window=10):
     video frame rate. 
     """
     ts = []
+    i = iter(packets)
     while len(ts) < window:
-        pkt = packets.next()
+        pkt = i.next()
         if pkt.data.is_start_of_frame:
             ts.append(pkt.secs)
     return (len(ts) - 1) / (ts[-1] - ts[0])
@@ -572,6 +631,7 @@ def split_packets(packets, duration=None, count=None):
     - duration in seconds
     
     """
+    packets = iter(packets)
 
     # slice
 

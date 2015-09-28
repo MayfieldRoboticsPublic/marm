@@ -14,6 +14,13 @@ logger = logging.getLogger(__name__)
 
 class Frame(object):
     """
+    Represents a frame as a tuple of:
+    
+    - pts
+    - flags
+    - data
+    
+    corresponding to `libavcodec.AVPacket`.
     """
 
     def __init__(self, *args, **kwargs):
@@ -56,10 +63,11 @@ class Frame(object):
 
 class Frames(collections.Iterator):
     """
+    Depacketizes of `Frame`s assumes one packet/frame.
     """
 
     def __init__(self, packets, pts_delay=0):
-        self.packets = packets
+        self.packets = iter(packets)
         self.pts_delay = pts_delay
         self.pts_offset = None
 
@@ -73,14 +81,15 @@ class Frames(collections.Iterator):
         if self.pts_offset is None:
             self.pts_offset = -int(packet.msecs) + self.pts_delay
         return Frame(
-                pts=int(packet.msecs) + self.pts_offset,
-                flags=0,
-                data=packet.data,
-            )
+            pts=int(packet.msecs) + self.pts_offset,
+            flags=0,
+            data=packet.data,
+        )
 
 
 class VideoFrame(Frame):
     """
+    Convenience specialization of `Frame` for video.
     """
 
     FLAG_KEY_FRAME = 1 << 0  # AV_PKT_FLAG_KEY
@@ -102,12 +111,17 @@ class VideoFrame(Frame):
 
 class VideoFrames(collections.Iterator):
     """
+    Depacketizes `VideoFrame`s. There may be more than one packet/frame and to
+    group them inot a single `VideoFrame` the packet data should support:
+    
+    - `RTPVideoPayloadMixin`.
+    
     """
 
     def __init__(self, packets):
-        self.packets = packets
+        self.packets = iter(packets)
         try:
-            self.packet = packets.next()
+            self.packet = self.packets.next()
         except StopIteration:
             self.packet = None
         if self.packet:
@@ -122,16 +136,6 @@ class VideoFrames(collections.Iterator):
         # already there
         if packet.data.is_start_of_frame:
             return packet, 0
-
-        # back
-#        if isinstance(self.packets, Packets):
-#            i = self.packets.window.last(lambda packet: packet.is_start_of_frame)
-#            if i != -1:
-#                offset = -(len(self.packets.window) - i) + 1
-#                self.packets.prev(i)
-#                packet = self.packets.next()
-#                logger.debug('found frame-start packet @ %s', packet.location)
-#                return packet, offset
 
         # forward
         offset = 0
@@ -150,16 +154,6 @@ class VideoFrames(collections.Iterator):
         # already there
         if packet.data.is_key_frame:
             return packet, 0
-
-        # back
-#        if isinstance(self.packets, Packets):
-#            i = self.packets.window.last(lambda packet: packet.is_start_of_frame and packet.is_key_frame)
-#            if i != -1:
-#                offset = self.packets.window[i:].count(lambda packet: packet.is_start_of_frame)
-#                self.packets.prev(i)
-#                packet = self.packets.next()
-#                logger.debug('found key-frame-start packet @ %s', packet.location)
-#                return packet, offset
 
         # forward
         offset = 0
@@ -183,10 +177,12 @@ class VideoFrames(collections.Iterator):
         # data
         fo = StringIO.StringIO()
         fo.write(first.data.data)
+        count = 1
         for self.packet in self.packets:
             if self.packet.data.is_start_of_frame:
                 break
             fo.write(self.packet.data.data)
+            count += 1
         else:
             self.packet = None
         data = fo.getvalue()

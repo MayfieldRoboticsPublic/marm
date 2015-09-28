@@ -14,6 +14,9 @@ def is_rtp_packet(pkt):
 
 
 class PCapRTPPacketReader(rtp.RTPPacketReader):
+    """
+    Iterates and indexes `RTPPacket`s from a PCAP formatted file.
+    """
     
     def __init__(self, *args, **kwargs):
         super(PCapRTPPacketReader, self).__init__(*args, **kwargs)
@@ -28,19 +31,20 @@ class PCapRTPPacketReader(rtp.RTPPacketReader):
     # rtp.RTPPacketReader
 
     def __iter__(self):
-        self.fo.seek(self.org)
-        return self
 
-    def next(self):
-        while True:
-            _, buf = self.i.next()
-            eth = dpkt.ethernet.Ethernet(buf)
-            if not is_rtp_packet(eth):
-                continue
-            pkt = self.packet_type(eth.data.data.data)
-            if self.packet_filter(pkt):
-                break
-        return pkt
+        def pkts():
+            while True:
+                _, buf = self.i.next()
+                eth = dpkt.ethernet.Ethernet(buf)
+                if not is_rtp_packet(eth):
+                    continue
+                pkt = self.packet_type(eth.data.data.data)
+                if not self.packet_filter(pkt):
+                    continue
+                yield pkt
+
+        self.fo.seek(self.org)
+        return pkts()
 
 
 rtp.RTPPacketReader.register('pcap', PCapRTPPacketReader)

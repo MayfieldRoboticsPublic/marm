@@ -59,6 +59,7 @@ except ImportError:
 
 extras_require = {
     'test': [
+        'mock >=1.3,<2',
         'pytest >=2.5.2,<3',
         'pytest-cache >=1.0,<2',
         'pytest-cov >=1.7,<2',

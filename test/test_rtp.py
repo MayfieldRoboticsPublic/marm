@@ -146,10 +146,11 @@ def test_cursor(
 
     # prev key-frames
     for i in range(v_parts):
-        (hit, v_tell, v_delta, a_tell) = v_p_kf[i]
+        hit, v_tell, v_delta, a_tell = v_p_kf[i]
         v_cur.seek((i, 0))
         s_pkt = v_cur.current()
         pkt = v_cur.prev_key_frame()
+        assert v_cur.tell() == v_tell
         if hit:
             assert pkt is not None and pkt.data.is_key_frame
             delta = pkt.secs - s_pkt.secs
@@ -157,7 +158,9 @@ def test_cursor(
             a_cur.seek((i, 0))
             a_cur.rewind(-v_delta)
             assert a_cur.tell() == a_tell
-        assert v_cur.tell() == v_tell
+        else:
+            print s_pkt.header.timestamp
+            assert pkt is None
 
     # next key-frames
     for i in range(v_parts):

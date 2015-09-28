@@ -1,3 +1,6 @@
+import StringIO
+
+import mock
 import pytest
 
 import marm
@@ -42,6 +45,30 @@ def test_gen_video_frames(
         assert c == frame_count
 
 
+def test_gen_video_frames_write_error(tmpdir):
+
+    class MyException(Exception):
+
+        pass
+
+    encoder, duration, width, height, frame_rate, = 'mpeg4', 5, 640, 480, 30
+    io = StringIO.StringIO()
+    with mock.patch.object(io, 'write') as p:
+        p.side_effect = MyException('bam')
+        with pytest.raises(MyException) as ei:
+            marm.gen_video_frames(
+                io,
+                duration=duration,
+                encoder=encoder,
+                pix_fmt=0,
+                width=width,
+                height=height,
+                bit_rate=400000,
+                frame_rate=frame_rate,
+            )
+        assert 'bam' in ei.value
+
+
 @pytest.mark.parametrize(
     'encoder_name,duration,bit_rate,sample_rate,frame_count', [
         ('flac', 11, 96000, 48000, 115),
@@ -75,3 +102,24 @@ def test_gen_audio_frames(
         for _ in marm.raw.read_frames(fo):
             c += 1
         assert c == frame_count
+
+
+def test_gen_audio_frames_write_error(tmpdir):
+
+    class MyException(Exception):
+
+        pass
+
+    encoder, duration, bit_rate, sample_rate = 'libopus', 10, 96000, 48000
+    io = StringIO.StringIO()
+    with mock.patch.object(io, 'write') as p:
+        p.side_effect = MyException('boom')
+        with pytest.raises(MyException) as ei:
+            marm.gen_audio_frames(
+                io,
+                encoder=encoder,
+                duration=duration,
+                bit_rate=bit_rate,
+                sample_rate=sample_rate,
+            )
+        assert 'boom' in ei.value

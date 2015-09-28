@@ -1,5 +1,3 @@
-"""
-"""
 import os
 import struct
 
@@ -7,12 +5,14 @@ from . import rtp
 
 
 class MJRRTPPacketReader(rtp.RTPPacketReader):
+    """
+    Iterates and indexes `RTPPacket`s from an MJR formatted file.
+    """
 
     def __init__(self, *args, **kwargs):
         super(MJRRTPPacketReader, self).__init__(*args, **kwargs)
-        read_header(self.fo)
+        self.type = read_header(self.fo)
         self.org = self.fo.tell()
-        self.i = read_packets(self.fo)
 
     # rtp.RTPPacketReader
     
@@ -28,18 +28,18 @@ class MJRRTPPacketReader(rtp.RTPPacketReader):
                 raise
         if restore:
             self.fo.seek(org)
-
+    
     def __iter__(self):
-        self.fo.seek(self.org)
-        return self
 
-    def next(self):
-        while True:
-            buf = self.i.next()
-            pkt = self.packet_type(buf)
-            if self.packet_filter(pkt):
-                break
-        return pkt
+        def pkts():
+            for buf in read_packets(self.fo):
+                pkt = self.packet_type(buf)
+                if not self.packet_filter(pkt):
+                    continue
+                yield pkt
+
+        self.fo.seek(self.org)
+        return pkts()
 
 
 rtp.RTPPacketReader.register('mjr', MJRRTPPacketReader)

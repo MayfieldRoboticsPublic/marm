@@ -1,4 +1,14 @@
 """
+Helpers for reading/writing encoded packets media packets (i.e. frames). To
+e.g. to count the number of video frames in a raw file:
+
+.. code:: python
+
+    with path.open('rb') as fo:
+        header = marm.raw.read_header(fo)
+        frames = marm.raw.read_frames(fo, frame_type=marm.VideoFrame)
+        count = sum(1 for frame in frames)
+
 """
 import collections
 import struct

@@ -6,7 +6,7 @@ cdef extern from 'libavformat/avformat.h':
 
     struct AVIOContext:
     
-        pass
+        unsigned char *buffer
     
     struct AVStream:
     
@@ -31,6 +31,7 @@ cdef extern from 'libavformat/avformat.h':
     
         AVInputFormat *iformat
         AVOutputFormat *oformat
+        AVIOContext *pb
         unsigned int nb_streams
         AVStream **streams
         int64_t start_time

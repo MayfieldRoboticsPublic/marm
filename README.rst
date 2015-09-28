@@ -4,9 +4,9 @@ marm
 
 `libav* <http://www.ffmpeg.org/>`_ front-end used to:
 
-- Read stored/archived media (e.g. `pcap <http://www.tcpdump.org/pcap.html>`_ed `rtp <https://tools.ietf.org/html/rfc3550>`_ packets).
-- Reconstruct frames (e.g. depacketize a frame from its rtp packets).
-- Synchronize reconstructed streams of frame data (e.g. audio and video).
+- Read stored/archived media packets (e.g. `pcap'd <http://www.tcpdump.org/pcap.html>`_ `rtp <https://tools.ietf.org/html/rfc3550>`_).
+- Reconstruct media frames (e.g. depacketized frame from its rtp packets).
+- Synchronize reconstructed streams of frame data (e.g. paired audio and video).
 - Mux frame stream(s) to a container (e.g. `mkv <http://www.matroska.org/>`_ file) using libav*.
 
 Motivating use case was:
@@ -20,6 +20,7 @@ which you can do e.g. like:
 
     import marm
     
+    # video frames
     v_pkts = marm.mjr.MJRRTPPacketReader(
         'path/to/video.mjr', 'rb',
         packet_type=marm.vp8.VP8RTPPacket,
@@ -30,12 +31,14 @@ which you can do e.g. like:
     v_pkts.reset()
     v_frames = marm.VideoFrames(v_pkts)
     
+    # audio frames
     a_pkts = marm.mjr.MJRRTPPacketReader(
         'path/to/audio.mjr', 'rb',
         packet_type=marm.opus.OpusRTPPacket,
     )
     a_frames = marm.Frames(a_pkts)
     
+    # and mux them ...
     with open('path/to/muxed.mkv', 'wb') as mkv_fo:
         marm.mux_frames(
             mkv_fo,
@@ -61,23 +64,22 @@ which you can do e.g. like:
 deps
 ----
 
-Devel `libav* <https://www.ffmpeg.org`_:
+Install devel `libav* <https://www.ffmpeg.org>`_, e.g.:
 
 .. code:: bash
 
-   mkdir ~/ffmpeg
-   cd ~/ffmpeg
+   mkdir ~/ffmpeg && cd ~/ffmpeg
    ./configure --enable-gpl --enable-version3 --enable-nonfree --enable-gpl --enable-libass --enable-libfaac --enable-libfdk-aac --enable-libmp3lame --enable-libopus --enable-libtheora --enable-libvorbis --enable-libvpx --enable-libx264
    make
    sudo make install
 
-and `libpcap <https://github.com/cisco/libsrtp>`_:
+and `libpcap <https://github.com/cisco/libsrtp>`_, e.g.:
 
 .. code:: bash
 
    sudo apt-get install libpcap-dev
 
-if you need them
+if you need them.
 
 install
 -------
@@ -93,7 +95,7 @@ but if you are developing then get it:
 .. code:: bash
 
    git clone git@github.com:mayfieldrobotics/marm.git ~/code/marm
-   cd marm
+   cd ~/code/marm
    
 create a `venv <https://virtualenv.pypa.io/en/latest/>`_:
 
@@ -114,7 +116,7 @@ usage
 -----
 
 Typically you'll begin with stored/archived media packets. Assuming e.g. we
-have **video** and **audio** `rtp` packets in an `mjr` file(s).
+have **video** and **audio** `rtp` packets in a `mjr` file(s):
 
 cli
 ~~~
@@ -144,9 +146,9 @@ and then the second half to **mkv**:
 
 .. code:: bash
 
-   $ marm mux -i 1 fixtures/test/sonic-{a,v}-{7,8,9,10,11,12}.mkv /tmp/marm/sonic-2.mkv
+   $ marm mux -o 1 fixtures/test/sonic-{a,v}-{7,8,9,10,11,12}.mkv /tmp/marm/sonic-2.mkv
    
-Finally **concat** the two:
+Finally use **ffmpeg** to concat the two:
 
    $ cat > /tmp/marm/sonic.txt <EOH
    /tmp/marm/sonic-1.mkv
@@ -170,7 +172,7 @@ and use the result:
 code
 ~~~~
 
-Here's how to do that same in code:
+To do the same in code:
 
 .. code:: python
 

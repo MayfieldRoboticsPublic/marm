@@ -1,6 +1,19 @@
 #!/usr/bin/env python
+import logging
+import sys
+
 import marm.cli
 
+
+def main():
+    args = marm.cli.arg_parser.parse_args()
+    logging.basicConfig(
+        level=marm.cli.log_levels[args.log_level],
+        format='%(asctime)s : %(levelname)s : %(name)s : %(message)s',
+        stream=sys.stderr,
+    )
+    args.cmd(args)
+
+
 if __name__ == '__main__':
-    args = marm.cli.arg_parser()
-    args.command(args)
+    main()

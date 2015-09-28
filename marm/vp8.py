@@ -1,6 +1,3 @@
-"""
-https://tools.ietf.org/html/draft-ietf-payload-vp8-16
-"""
 from __future__ import division
 
 import ctypes
@@ -265,8 +262,13 @@ class VP8KeyFrameHeader(ctypes.LittleEndianStructure):
 
 
 class VP8RTPPacket(rtp.RTPTimeMixin, rtp.RTPPacket):
+    """
+    https://tools.ietf.org/html/draft-ietf-payload-vp8-16
+    """
 
     # rtp.RTPPacket
+
+    type = rtp.RTPPacket.VIDEO_TYPE
 
     payload_type = VP8RTPPayload
 

@@ -11,7 +11,8 @@ import marm
      'a_encoder,a_bit_rate,a_sample_rate,'
      'fmt'), [
         (5, 'mpeg4', 320, 240, 25, 'flac', 96000, 48000, 'mkv'),
-    ])
+    ]
+)
 def test_mux_gen(
         tmpdir,
         duration,
@@ -76,15 +77,27 @@ def test_mux_gen(
     assert fmt in m_stat.iformat.extensions.split(',')
 
 
+def check_output(cmd):
+    try:
+        return subprocess.check_output(cmd, shell=True), None
+    except Exception, ex:
+        return None, ex
+
+
 @pytest.mark.parametrize(
     ('v_store,v_enc,a_store,a_enc,dur,fmt'), [
         ('sonic-v.mjr', 'libvpx', 'sonic-a.mjr', 'libopus', 10.0, 'mkv'),
-    ])
+    ]
+)
 def test_concat_muxed(
-        tmpdir, fixtures, ffmpeg,
+        tmpdir,
+        fixtures,
+        pool,
+        ffmpeg,
         v_store, v_enc,
         a_store, a_enc,
-        dur, fmt):
+        dur,
+        fmt):
     # split v
     v_path = fixtures.join(v_store)
     v_parts = 0
@@ -213,21 +226,27 @@ def test_concat_muxed(
                 },
                 audio_packets=marm.Frames(a_pkts, pts_delay=a_b_delay),
             )
-    
+
     # xcode parts
-    for i, (v_b, v_b_drop, v_e, a_b, a_b_drop, _, a_e) in enumerate(mux_points):
+    xcodes = []
+    for i, point in enumerate(mux_points):
+        v_b, v_b_drop, v_e, a_b, a_b_drop, _, a_e = point
         p_path = tmpdir.join('mux-{0}.{1}'.format(i + 1, fmt))
         x_path = tmpdir.join('xcode-{0}.{1}'.format(i + 1, fmt))
         cmd = [
             ffmpeg,
-            '-i', str(p_path),
+            '-i', p_path,
             '-codec:v', v_enc,
-            '-filter:v', '"select=gte(n\\, {0}), setpts=PTS-STARTPTS"'.format(v_b_drop),
+            '-filter:v',
+            '"select=gte(n\\, {0}), setpts=PTS-STARTPTS"'.format(v_b_drop),
             '-codec:a', a_enc,
-            '-filter:a', '"aselect=gte(n\\, {0}), asetpts=PTS-STARTPTS"'.format(a_b_drop),
-            str(x_path),
+            '-filter:a',
+            '"aselect=gte(n\\, {0}), asetpts=PTS-STARTPTS"'.format(a_b_drop),
+            x_path,
         ]
-        subprocess.check_call(args=' '.join(cmd), shell=True)
+        xcodes.append(' '.join(map(str, cmd)))
+    for _, ex in pool.imap(check_output, xcodes):
+        assert ex is None
 
     # concat xcoded parts
     c_txt_path = tmpdir.join('concat.txt')
@@ -245,3 +264,75 @@ def test_concat_muxed(
     ]
     subprocess.check_call(args=' '.join(cmd), shell=True)
 
+
+@pytest.mark.parametrize(
+    ('v_store,v_pt,v_enc,a_store,a_pt,a_enc,fmt,count'), [
+        ('sonic-v.mjr', marm.vp8.VP8RTPPacket, 'libvpx',
+         'sonic-a.mjr', marm.opus.OpusRTPPacket, 'libopus',
+         'mkv',
+         100),
+    ]
+)
+def test_mux_next_packet_error(
+        tmpdir,
+        fixtures,
+        v_store, v_pt, v_enc,
+        a_store, a_pt, a_enc,
+        fmt,
+        count):
+    # v
+    v_src = fixtures.join(v_store)
+    v_pkts = marm.rtp.RTPPacketReader.open(
+        str(v_src), packet_type=v_pt
+    )
+    v_width, v_height = marm.rtp.probe_video_dimensions(v_pkts)
+    v_pkts.reset()
+    v_frame_rate = marm.rtp.estimate_video_frame_rate(v_pkts)
+    v_pkts.reset()
+
+    # a
+    a_src = fixtures.join(a_store)
+    a_pkts = marm.rtp.RTPPacketReader.open(
+        str(a_src), packet_type=a_pt
+    )
+
+    # mux
+
+    class MyException(Exception):
+
+        pass
+
+    local = {'call_count': 0}
+
+    def v_pkts_wrapper():
+        for i, v_pkt in enumerate(v_pkts):
+            local['call_count'] += 1
+            if i > count:
+                raise MyException('poop')
+            yield v_pkt
+
+    m_path = tmpdir.join('mux.{0}'.format(fmt))
+    with pytest.raises(MyException) as ei:
+        with m_path.open('wb') as fo:
+            marm.mux_frames(
+                fo,
+                video_profile={
+                    'encoder_name': v_enc,
+                    'pix_fmt': marm.VideoFrame.PIX_FMT_YUV420P,
+                    'width': v_width,
+                    'height': v_height,
+                    'frame_rate': v_frame_rate,
+                    'bit_rate': 4000000,
+                    'time_base': (1, 1000),
+                },
+                video_packets=marm.VideoFrames(v_pkts_wrapper()),
+                audio_profile={
+                    'encoder_name': a_enc,
+                    'bit_rate': 96000,
+                    'sample_rate': 48000,
+                    'time_base': (1, 1000),
+                },
+                audio_packets=marm.Frames(a_pkts)
+            )
+    assert 'poop' in ei.value
+    assert local == {'call_count': count + 2}

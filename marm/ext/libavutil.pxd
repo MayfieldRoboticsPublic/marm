@@ -3,6 +3,12 @@ from libcx cimport va_list
 
 cdef extern from 'libavutil/avutil.h':
 
+    uint64_t AV_NOPTS_VALUE
+
+    void av_free(void *ptr)
+
+    void av_freep(void *arg)
+
     struct AVFrame:
     
         int width
@@ -94,4 +100,4 @@ cdef extern from 'libavutil/avutil.h':
     
     void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl, char *line, int line_size, int *print_prefix)
 
-    void av_log_set_callback(void (*callback)(void *avcl, int level, const char *fmt, va_list vl))
+    void av_log_set_callback(void (*callback)(void *avcl, int level, const char *fmt, va_list vl) except *)

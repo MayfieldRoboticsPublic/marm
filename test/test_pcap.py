@@ -27,10 +27,7 @@ def test_extract_frames_from_pcap(
                 pkt.header.ssrc == ssrc
             )
         )
-        count = 0
-        for _ in pkts:
-            count += 1
-        assert count == expected
+        assert sum(1 for _ in pkts) == expected
 
 
 @pytest.mark.parametrize(

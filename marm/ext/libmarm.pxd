@@ -4,79 +4,94 @@ cimport libavutil
 
 cdef extern from 'marm.h':
 
-    # errors
-
+    # results
+    
+    ctypedef int marm_result_t
+    
     int MARM_RESULT_OK
+    int MARM_RESULT_ABORTED
+    int MARM_RESULT_WRITE_FAILED
     
     # logging
-    
-    ctypedef void (*marm_log_t)(void *p, int level, const char *format, ...);
     
     int MARM_LOG_LEVEL_DEBUG
     int MARM_LOG_LEVEL_INFO
     int MARM_LOG_LEVEL_WARN
     int MARM_LOG_LEVEL_ERROR
     
-    # io
-
-    ctypedef size_t (*marm_read_t)(void *p, void *data, size_t size)
+    # platform
+    
+    ctypedef void (*marm_log_t)(marm_ctx_s *ctx, int level, const char *format, ...) except *
+    
+    ctypedef int (*marm_abort_t)(marm_ctx_s *ctx) except *
+    
+    ctypedef long (*marm_read_t)(marm_ctx_s *ctx, void *file, void *data, size_t size) except? -1
         
-    ctypedef void (*marm_write_t)(void *p, const void *data, size_t size)
+    ctypedef int (*marm_write_t)(marm_ctx_s *ctx, void *file, const void *data, size_t size) except? -1
     
-    ctypedef long (*marm_seek_t)(void *p, long offset, int whence)
+    ctypedef long (*marm_seek_t)(marm_ctx_s *ctx, void *file, long offset, int whence)  except? -1
     
-    struct marm_io_s:
+    ctypedef int (*marm_next_packet_t)(marm_ctx_s *ctx, void *packets, libavcodec.AVPacket *packet)  except? -1
     
-        void *p
+    struct marm_ctx_s:
+    
+        marm_log_t log
+        marm_abort_t abort
         marm_read_t read
         marm_write_t write
         marm_seek_t seek
+        marm_next_packet_t next_packet
+        void *err
+    
+    ctypedef marm_ctx_s marm_ctx_t
     
     # gen
     
     struct marm_gen_v_s:
     
-        marm_log_t log
-        void *log_p
-        marm_io_s io
+        marm_ctx_t *ctx
+        void *file
         const char *encoder_name
         libavutil.AVPixelFormat pix_fmt
         int width
         int height
         int bit_rate
         int frame_rate
+        
+    ctypedef marm_gen_v_s marm_gen_v_t
     
-    int marm_gen_v_open(marm_gen_v_s *ctx)
+    marm_result_t marm_gen_v_open(marm_gen_v_t *v)
     
-    void marm_gen_v_header(marm_gen_v_s *ctx)
+    marm_result_t marm_gen_v_header(marm_gen_v_t *v)
     
-    void marm_gen_v_close(marm_gen_v_s *ctx)
+    void marm_gen_v_close(marm_gen_v_t *v)
     
-    int marm_gen_v(marm_gen_v_s *ctx, int dur, int raw)
+    marm_result_t marm_gen_v(marm_gen_v_t *v, int dur, int raw)
     
     struct marm_gen_a_s:
     
-        marm_log_t log
-        void *log_p
-        marm_io_s io
+        marm_ctx_t *ctx
+        void *file
         const char *encoder_name
         int bit_rate
         int sample_rate
 
-    int marm_gen_a_open(marm_gen_a_s *ctx)
+    ctypedef marm_gen_a_s marm_gen_a_t
+
+    marm_result_t marm_gen_a_open(marm_gen_a_t *a)
     
-    void marm_gen_a_header(marm_gen_a_s *ctx)
+    marm_result_t marm_gen_a_header(marm_gen_a_t *a)
     
-    int marm_gen_a(marm_gen_a_s *ctx, int dur, int raw)
+    marm_result_t marm_gen_a(marm_gen_a_t *a, int dur, int raw)
     
-    void marm_gen_a_close(marm_gen_a_s *ctx)
+    void marm_gen_a_close(marm_gen_a_t *a)
     
     # mux
     
     struct marm_mux_v_s:
     
-        marm_log_t log
-        void *read_packet_p
+        marm_ctx_t *ctx
+        void *packets
         const char *encoder_name
         libavutil.AVPixelFormat pix_fmt
         int width
@@ -84,48 +99,54 @@ cdef extern from 'marm.h':
         int bit_rate
         int frame_rate
         libavutil.AVRational time_base
-
-    int marm_mux_v_open(marm_mux_v_s *v)
     
-    void marm_mux_v_close(marm_mux_v_s *v)
+    ctypedef marm_mux_v_s marm_mux_v_t
+
+    marm_result_t marm_mux_v_open(marm_mux_v_t *v)
+    
+    void marm_mux_v_close(marm_mux_v_t *v)
 
     struct marm_mux_a_s:
     
-        marm_log_t log
-        void *read_packet_p
+        marm_ctx_t *ctx
+        void *packets
         const char *encoder_name
         int bit_rate
         int sample_rate
         libavutil.AVRational time_base
     
-    int marm_mux_a_open(marm_mux_a_s *a)
-
-    void marm_mux_a_close(marm_mux_a_s *a)
+    ctypedef marm_mux_a_s marm_mux_a_t
     
-    ctypedef int (*marm_read_packet_t)(void *p, libavcodec.AVPacket *packet)
+    marm_result_t marm_mux_a_open(marm_mux_a_t *a)
+
+    void marm_mux_a_close(marm_mux_a_t *a)
+    
+    int MARM_MUX_FLAG_MONOTONIC_FILTER
     
     struct marm_mux_s:
         
-        marm_log_t log
-        void *log_p
-        marm_io_s io
-        marm_read_packet_t read_packet
+        marm_ctx_t *ctx
+        void *file
+        int flags
         const char *format_name
         const char *format_extension
     
-    int marm_mux(marm_mux_s *ctx, marm_mux_v_s *v, marm_mux_a_s *a)
+    ctypedef marm_mux_s marm_mux_t
     
-    # mux
+    marm_result_t marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) except *
+    
+    # stat
     
     struct marm_stat_s:
     
-        marm_log_t log
-        void *log_p
-        marm_io_s io
+        marm_ctx_t *ctx
+        void *file
         const char *format_name
         const char *format_extension
         libavformat.AVFormatContext *format
+    
+    ctypedef marm_stat_s marm_stat_t
 
-    int marm_stat(marm_stat_s *ctx)
+    marm_result_t marm_stat(marm_stat_t *s)
 
-    void marm_stat_close(marm_stat_s *ctx)
+    void marm_stat_close(marm_stat_t *s)
