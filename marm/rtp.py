@@ -5,6 +5,7 @@ import collections
 import contextlib
 import copy
 import ctypes
+import datetime
 import inspect
 import itertools
 import logging
@@ -397,29 +398,48 @@ class RTPCursor(collections.Iterator):
 
     def prev_start_of_frame(self):
         return self.search(
-            lambda pkt: pkt.data.is_start_of_frame and pkt.data.is_start_of_frame,
+            lambda pkt: (
+                pkt.data.is_start_of_frame and pkt.data.is_start_of_frame
+            ),
             'backward'
         )
 
     def next_start_of_frame(self):
         return self.search(
-            lambda pkt: pkt.data.is_start_of_frame and pkt.data.is_start_of_frame,
+            lambda pkt: (
+                pkt.data.is_start_of_frame and pkt.data.is_start_of_frame
+            ),
             'forward'
         )
+        
+    def interval(self, (part, pkt)):
+        # FIXME: sum inter-packet delta w/ reset detection?
+        start = self.current().secs
+        self.seek((part, pkt))
+        delta = self.current().secs - start
+        return delta
 
     def fastforward(self, secs):
+        # FIXME: sum inter-packet delta w/ reset detection?
+        if not secs:
+            return self.tell()
+        if secs < 0:
+            return self.rewind(-secs)
         start = self.current().secs
         match = lambda pkt: pkt.secs - start >= secs
         self.search(match, 'forward')
+        return self.tell()
 
     def rewind(self, secs):
-        
-        def match(pkt):
-            return start - pkt.secs >= secs
-        
-        if secs:
-            start = self.current().secs
-            self.search(match, 'backward')
+        # FIXME: sum inter-packet delta w/ reset detection?
+        if not secs:
+            return self.tell()
+        if secs < 0:
+            return self.fastforward(-secs)
+        start = self.current().secs
+        match = lambda pkt: start - pkt.secs >= secs
+        self.search(match, 'backward')
+        return self.tell()
 
     def prev(self):
         _, pkt = self._prev()
@@ -457,6 +477,17 @@ class RTPCursor(collections.Iterator):
         finally:
             self.seek(pos)
 
+    def truncate(self, (part, pkt)):
+        try:
+            stop = (part, pkt)
+            while True:
+                pos, pkt = self._next()
+                if stop <= pos:
+                    break
+                yield pkt
+        except StopIteration:
+            pass
+
     # collections.Iterator
     
     def __iter__(self):
@@ -474,27 +505,18 @@ class RTPCursor(collections.Iterator):
             self.file = file
             self.part_type = part_type
             self.part_kwargs = part_kwargs
-            self.fo = None
             self.pkts = None
             self.i = None
             self.idx = []
 
         def open(self):
             self.close()
-            if isinstance(self.file, basestring):
-                self.fo = open(self.file, 'rb')
-            else:
-                self.fo = self.file
-                self.fo.seek(0)
-            self.pkts = self.part_type(self.fo, **self.part_kwargs)
+            self.pkts = self.part_type(self.file, **self.part_kwargs)
             for pos in self.pkts.index():
                 self.idx.append(pos)
             self.i = iter(self.pkts)
 
         def close(self):
-            if self.fo:
-                self.fo.close()
-                self.fo = None
             self.pkts = None
             self.i = None
             del self.idx[:]
@@ -509,7 +531,7 @@ class RTPCursor(collections.Iterator):
         
         @property
         def is_opened(self):
-            return self.fo is not None
+            return self.pkts is not None
 
         @property
         def is_closed(self):
@@ -518,7 +540,7 @@ class RTPCursor(collections.Iterator):
         def packet(self, i):
             if self.is_closed:
                 self.open()
-            self.fo.seek(self.idx[i], os.SEEK_SET)
+            self.pkts.fo.seek(self.idx[i], os.SEEK_SET)
             return self.i.next()
 
         # collections.Sequence
@@ -628,7 +650,7 @@ def split_packets(packets, duration=None, count=None):
     Splits packets into n-sized packet chunks where n is capped by a:
     
     - packet count and/or
-    - duration in seconds
+    - duration in seconds or `datetime.timedelta`
     
     """
     packets = iter(packets)
@@ -652,6 +674,8 @@ def split_packets(packets, duration=None, count=None):
 
     ps = []
     if duration is not None:
+        if isinstance(duration, datetime.timedelta):
+            duration = duration.total_seconds()
         ps.append(_duration)
     if count is not None:
         ps.append(_count)

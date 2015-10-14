@@ -45,10 +45,17 @@ class MJRRTPPacketReader(rtp.RTPPacketReader):
 rtp.RTPPacketReader.register('mjr', MJRRTPPacketReader)
 
 
+MARKER = 'MEETECHO'
+
+AUDIO_TYPE = 'audio'
+
+VIDEO_TYPE = 'video'
+
+
 def read_header(fo):
     read_marker(fo)
     type_ = read_string(fo)
-    if type_ not in ('audio', 'video'):
+    if type_ not in (AUDIO_TYPE, VIDEO_TYPE):
         raise ValueError('Unsupported type "{0}".'.format(type_))
     return type_
 
@@ -65,10 +72,9 @@ def read_string(fo, length=None):
         raise ValueError('Failed to read {0} length string at {1}.'.format(length, fo.tell()))
     return b
 
-
 def read_marker(fo):
-    b = read_string(fo, len('MEETECHO'))
-    if b != 'MEETECHO':
+    b = read_string(fo, len(MARKER))
+    if b != MARKER:
         raise ValueError('Invalid marker "{0}" != "{1}"'.format(b, 'MEETCHO'))
     return b
 
@@ -116,7 +122,7 @@ def is_eof(ex):
 
 
 def write_marker(fo):
-    fo.write('MEETECHO')
+    fo.write(MARKER)
 
 
 def write_string(fo, buf):
