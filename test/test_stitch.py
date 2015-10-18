@@ -11,7 +11,7 @@ def cut(tmpdir,
         a_mjr, a_packet_type,
         b_secs, e_secs,
         cuts):
-        # slice v
+    # slice v
     cur = marm.rtp.RTPCursor(
         [v_mjr.strpath],
         marm.mjr.MJRRTPPacketReader,
@@ -275,7 +275,6 @@ def test_stitch_mjrs_2_mpegts(
             for p in ps
         )))
         for p in ps:
-            fo.write('#EXT-X-DISCONTINUITY\n')
             for l in p[5:-1]:
                 fo.write(l)
         fo.write('#EXT-X-ENDLIST\n')
