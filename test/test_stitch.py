@@ -299,4 +299,3 @@ def test_stitch_mjrs_2_mpegts(
              'nb_read_packets': stream['nb_read_packets'],
             })
     assert map(dict, stitched_tally) == tally
-    print tmpdir

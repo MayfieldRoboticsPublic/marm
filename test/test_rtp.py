@@ -159,7 +159,6 @@ def test_cursor(
             a_cur.rewind(-v_delta)
             assert a_cur.tell() == a_tell
         else:
-            print s_pkt.header.timestamp
             assert pkt is None
 
     # next key-frames
