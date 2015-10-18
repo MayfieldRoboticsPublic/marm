@@ -119,7 +119,7 @@ class VP8RTPPayload(rtp.RTPVideoPayloadMixin, rtp.RTPPayload):
 
     @property
     def is_key_frame(self):
-        return self.header.is_key_frame
+        return self.header.is_key_frame if self.is_start_of_frame else False
 
     @property
     def width(self):

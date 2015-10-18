@@ -66,10 +66,9 @@ class Frames(collections.Iterator):
     Depacketizes of `Frame`s assumes one packet/frame.
     """
 
-    def __init__(self, packets, pts_delay=0):
+    def __init__(self, packets, pts_offset=0):
         self.packets = iter(packets)
-        self.pts_delay = pts_delay
-        self.pts_offset = None
+        self.pts_offset = pts_offset
 
     # collections.Iterator
 
@@ -78,10 +77,8 @@ class Frames(collections.Iterator):
 
     def next(self):
         packet = self.packets.next()
-        if self.pts_offset is None:
-            self.pts_offset = -int(packet.msecs) + self.pts_delay
         return Frame(
-            pts=int(packet.msecs) + self.pts_offset,
+            pts=int(packet.msecs + self.pts_offset),
             flags=0,
             data=packet.data,
         )
@@ -118,7 +115,7 @@ class VideoFrames(collections.Iterator):
     
     """
 
-    def __init__(self, packets):
+    def __init__(self, packets, pts_offset=0):
         self.packets = iter(packets)
         try:
             self.packet = self.packets.next()
@@ -128,7 +125,7 @@ class VideoFrames(collections.Iterator):
             self.packet, self.start_frame_offset = self._seek_start_frame()
         if self.packet:
             self.packet, self.key_frame_offset = self._seek_key_frame()
-        self.pts_offset = -int(self.packet.msecs) if self.packet else 0
+        self.pts_offset = pts_offset
 
     def _seek_start_frame(self):
         packet = self.packet
@@ -205,7 +202,10 @@ class VideoFrames(collections.Iterator):
                 logger.debug('dropping non-frame-start packet')
             else:
                 raise StopIteration()
-        return self._read_frame()
+        packet = self._read_frame()
+        if packet is None:
+            raise StopIteration()
+        return packet
 
 
 # libav* codec.

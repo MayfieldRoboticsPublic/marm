@@ -278,13 +278,14 @@ class RTPPacketReader(collections.Iterable):
             self.seek(pos)
 
 
-class RTPCursor(collections.Iterator):
+class RTPCursor(collections.Iterable):
     """
     Cursor used to iterate over a collection or stored `RTPPacket`s.
     """
 
     def __init__(self, parts, part_type, **part_kwargs):
         self.part_type = part_type
+        self.packet_type = part_kwargs.get('packet_type', RTPPacket)
         self.parts = [
             self._Part(part, part_type, part_kwargs) for part in parts
         ]
@@ -295,6 +296,8 @@ class RTPCursor(collections.Iterator):
             self.part = None
 
     def seek(self, (pos_part, pos_pkt)):
+        if self.tell() == (pos_part, pos_pkt):
+            return
         if pos_part < 0:
             pos_part = len(self.parts) + pos_part
         if not (0 <= pos_part < len(self.parts)):
@@ -320,34 +323,11 @@ class RTPCursor(collections.Iterator):
     def tell(self):
         return (self.pos_part, self.pos_pkt)
 
-    def each(self, (pos_part, pos_pkt), func, restore=False):
-        b, e = self.tell(), (pos_part, pos_pkt)
-        
-        def fwd():
-            pos, pkt = self._next()
-            if pos > e:
-                self._prev()
-                raise StopIteration
-            return pkt
+    def each(self, stop, func):
+        for pkt in self.slice(stop):
+            func(pkt)
 
-        def bwd():
-            pos, pkt = self._prev()
-            if pos < b:
-                self._next()
-                raise StopIteration
-            return pkt
-        
-        step = bwd if e < b else fwd
-        try:
-            while True:
-                pkt = step()
-                func(pkt)
-        except StopIteration:
-            pass
-        if restore:
-            self.seek(b)
-
-    def count(self, (part, pkt), match=None):
+    def count(self, stop, match=None):
         s = {'count': 0}
 
         def func(pkt):
@@ -356,7 +336,7 @@ class RTPCursor(collections.Iterator):
 
         if match is None:
             match = lambda pkt: True
-        self.each((part, pkt), func)
+        self.each(stop, func)
         return s['count']
 
     def search(self, match, direction='forward'):
@@ -411,11 +391,13 @@ class RTPCursor(collections.Iterator):
             ),
             'forward'
         )
-        
-    def interval(self, (part, pkt)):
+
+    def interval(self, pos=None):
         # FIXME: sum inter-packet delta w/ reset detection?
+        if not pos:
+            pos = (-1, -1)
         start = self.current().secs
-        self.seek((part, pkt))
+        self.seek(pos)
         delta = self.current().secs - start
         return delta
 
@@ -441,16 +423,116 @@ class RTPCursor(collections.Iterator):
         self.search(match, 'backward')
         return self.tell()
 
+    def time_cut(self, begin_secs, end_secs):
+        org = self.tell()
+        
+        # head
+        self.fastforward(begin_secs)
+        base = self.tell()
+        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
+            self.prev_start_of_frame()
+        start = self.tell()
+        self.seek(base)
+        start_secs = begin_secs + self.interval(start)
+        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
+            if not self.current().data.is_key_frame:
+                self.prev_key_frame()
+        lead = self.tell()
+        self.seek(base)
+        lead_secs = begin_secs + self.interval(lead)
+
+        # tail
+        self.seek(org)
+        self.fastforward(end_secs)
+        base = self.tell()
+        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
+            self.prev_start_of_frame()
+        stop = self.tell()
+        self.seek(base)
+        stop_secs = end_secs + self.interval(stop)
+        
+        return (lead, start, stop), (lead_secs, start_secs, stop_secs)
+
+    def time_positions(self, *args):
+        args = sorted([(secs, i) for i, secs in enumerate(args)])
+        prev = 0
+        pos = []
+        for secs, i in args:
+            off_secs = secs - prev
+            self.fastforward(off_secs)
+            pos.append((i, self.tell()))
+            prev += off_secs
+        return (p for _, p in sorted(pos))
+
     def prev(self):
         _, pkt = self._prev()
         return pkt
 
-    def slice(self, pos):
-        if pos >= self.tell():
-            for pkt in self:
-                yield pkt
-                if pos < self.tell():
-                    break
+    def slice(self, stop):
+        if stop < self.tell():
+            yield self.current()
+            try:
+                while True:
+                    pos, pkt = self._prev()
+                    if pos <= stop:
+                        break
+                    yield pkt
+            except StopIteration:
+                pass
+        elif stop > self.tell():
+            yield self.current()
+            try:
+                while True:
+                    pos, pkt = self._next()
+                    if pos >= stop:
+                        break
+                    yield pkt
+            except StopIteration:
+                pass
+
+    def time_slice(self, begin_secs, end_secs):
+        org = self.tell()
+        
+        # start
+        self.fastforward(begin_secs)
+        begin = self.tell()
+        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
+            self.next_key_frame()
+        start = self.tell()
+        self.seek(begin)
+        start_secs = begin_secs + self.interval(start)
+        
+        # stop
+        if end_secs is None:
+            self.seek(org)
+            end_secs = self.interval((-1, -1))
+        self.seek(org)
+        self.fastforward(end_secs)
+        end = self.tell()
+        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
+            self.prev_start_of_frame()
+        stop = self.tell()
+        stop_secs = end_secs + self.interval(end)
+        
+        # iterator
+        
+        class Slice(collections.Iterator):
+            
+            def __init__(self, cur, start, stop):
+                self.cur, self.start, self.stop = cur, start, stop
+                self.i = None
+
+            # collections.Iterator
+
+            def __iter__(self):
+                self.cur.seek(self.start)
+                self.i = self.cur.slice(self.stop)
+                return self
+
+            def next(self):
+                return self.i.next()
+        
+        return start_secs, stop_secs, Slice(self, start, stop)
 
     def current(self):
         if not self.part.is_opened:
@@ -467,8 +549,7 @@ class RTPCursor(collections.Iterator):
         )
         obj.seek(self.tell())
         return obj
-    
-    
+
     @contextlib.contextmanager
     def restoring(self):
         pos = self.tell()
@@ -477,25 +558,18 @@ class RTPCursor(collections.Iterator):
         finally:
             self.seek(pos)
 
-    def truncate(self, (part, pkt)):
-        try:
-            stop = (part, pkt)
-            while True:
-                pos, pkt = self._next()
-                if stop <= pos:
-                    break
-                yield pkt
-        except StopIteration:
-            pass
+    # collections.Iterable
 
-    # collections.Iterator
-    
     def __iter__(self):
-        return self
-
-    def next(self):
-        _, pkt = self._next()
-        return pkt
+        if self.part is None:
+            return
+        try:
+            yield self.current()
+        except IndexError:
+            raise StopIteration()
+        while True:
+            _, pkt = self._next()
+            yield pkt
 
     # internals
 
@@ -552,39 +626,55 @@ class RTPCursor(collections.Iterator):
             return len(self.idx)
 
     def _next(self):
-        if self.part is None:
-            raise StopIteration
-        if not self.part.is_opened:
-            self.part.open()
-        if not (0 <= self.pos_part < len(self.parts)):
-            raise StopIteration
-        if not (0 <= self.pos_pkt < len(self.part)):
-            raise StopIteration
+        # next
+        (pos_part, pos_pkt) = (self.pos_part, self.pos_pkt)
+        try:
+            self.pos_pkt += 1
+            if not (0 <= self.pos_pkt < len(self.part)):
+                if self.pos_part + 1 < len(self.parts):
+                    self.pos_part += 1
+                    self.pos_pkt = 0
+                    self.part = self.parts[self.pos_part]
+            if self.part is None:
+                raise StopIteration
+            if not self.part.is_opened:
+                self.part.open()
+            if not (0 <= self.pos_part < len(self.parts)):
+                raise StopIteration
+            if not (0 <= self.pos_pkt < len(self.part)):
+                raise StopIteration
+        except StopIteration:
+            (self.pos_part, self.pos_pkt) = (pos_part, pos_pkt)
+            raise
+
+        # read
         pos, pkt = self.tell(), self.part.packet(self.pos_pkt)
-        self.pos_pkt += 1
-        if not (0 <= self.pos_pkt < len(self.part)):
-            if self.pos_part + 1 < len(self.parts):
-                self.pos_part += 1
-                self.pos_pkt = 0
-                self.part = self.parts[self.pos_part]
         return pos, pkt
 
     def _prev(self):
-        if self.part is None:
-            raise StopIteration
-        if not self.part.is_opened:
-            self.part.open()
-        self.pos_pkt -= 1
-        while self.pos_pkt < 0:
-            self.pos_part -= 1
-            if self.pos_part < 0:
-                self.pos_part, self.pos_pkt = 0, 0
+        # prev
+        (pos_part, pos_pkt) = (self.pos_part, self.pos_pkt)
+        try:
+            self.pos_pkt -= 1
+            while self.pos_pkt < 0:
+                self.pos_part -= 1
+                if self.pos_part < 0:
+                    self.pos_part, self.pos_pkt = 0, 0
+                    self.part = self.parts[self.pos_part]
+                    raise StopIteration
                 self.part = self.parts[self.pos_part]
+                if not self.part.is_opened:
+                    self.part.open()
+                self.pos_pkt = len(self.part) - 1
+            if self.part is None:
                 raise StopIteration
-            self.part = self.parts[self.pos_part]
             if not self.part.is_opened:
                 self.part.open()
-            self.pos_pkt = len(self.part) - 1
+        except StopIteration:
+            (self.pos_part, self.pos_pkt) = (pos_part, pos_pkt)
+            raise
+
+        # read
         pos, pkt = self.tell(), self.part.packet(self.pos_pkt)
         return pos, pkt
 

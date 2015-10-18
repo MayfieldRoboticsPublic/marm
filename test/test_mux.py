@@ -224,7 +224,7 @@ def test_concat_muxed(
                     'sample_rate': 48000,
                     'time_base': (1, 1000),
                 },
-                audio_packets=marm.Frames(a_pkts, pts_delay=a_b_delay),
+                audio_packets=marm.Frames(a_pkts, a_b_delay),
             )
 
     # xcode parts

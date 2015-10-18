@@ -1,10 +1,17 @@
 import logging
 import multiprocessing.dummy
 import os
+import pprint
 import sys
 
 import py
 import pytest
+
+
+def pytest_namespace():
+    return {
+        'pprint': pprint.pprint,
+    }
 
 
 def pytest_addoption(parser):

@@ -76,6 +76,8 @@ __all__ = [
     'opus',
     'mjr',
     'pcap',
+    'FFProbe',
+    'FFMPEG',
 ]
 
 # frames
@@ -102,3 +104,6 @@ from . import opus
 # stored packets
 from . import mjr
 from . import pcap
+
+# helper
+from .ffmpeg import FFProbe, FFMPEG
