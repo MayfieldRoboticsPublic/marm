@@ -1,4 +1,5 @@
 #include "marm.h"
+#include "util.h"
 
 
 int marm_mux_v_open(marm_mux_v_t *v) {
@@ -45,20 +46,14 @@ cleanup:
 void marm_mux_a_close(marm_mux_a_t *a) {
 }
 
-static int write(void *opaque, uint8_t *buf, int buf_size) {
-    marm_mux_t *m = (marm_mux_t *)opaque;
-    return m->ctx->write(m->ctx, m->file, buf, buf_size);
-}
-
-static int64_t seek(void *opaque, int64_t offset, int whence) {
-    /* seek-less files size not supported */
-    if (whence == AVSEEK_SIZE)
-        return -1;
-    marm_mux_t *m = (marm_mux_t *)opaque;
-    return m->ctx->seek(m->ctx, m->file, offset, whence);
-}
-
-int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
+int marm_mux(
+        marm_ctx_t *ctx,
+        void *file,
+        int flags,
+        const char *format_name,
+        const char *format_extension,
+        marm_mux_v_t *v,
+        marm_mux_a_t *a) {
     AVFormatContext *o_ctx = NULL;
     AVOutputFormat *o_fmt = NULL;
     AVStream *v_st = NULL, *a_st = NULL;
@@ -67,10 +62,10 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
     AVPacket v_pkt = {0}, a_pkt = {0};
     unsigned char *buffer = NULL;
     int buffer_len = 4096;
-    marm_ctx_t *ctx = m->ctx;
+    file_ctx_t file_ctx = { .ctx = ctx, .file = file };
 
     // output context
-    avformat_alloc_output_context2(&o_ctx, NULL, m->format_name, m->format_extension);
+    avformat_alloc_output_context2(&o_ctx, NULL, format_name, format_extension);
     if (!o_ctx) {
         MARM_ERROR(ctx, "could not allocate output context");
         res = -1;
@@ -80,11 +75,14 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
 
     // add video stream
     if (v) {
+        // codec stream
         v_st = avformat_new_stream(o_ctx, v->codec);
         if (!v_st) {
             res = -1;
             goto cleanup;
         }
+
+        // codec params
         v_st->codec->bit_rate = v->bit_rate;
         v_st->codec->width = v->width;
         v_st->codec->height = v->height;
@@ -105,29 +103,36 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
         }
         v_st->time_base = v->time_base;
         v_st->codec->time_base = v_st->time_base;
+
+        // context for stream codec
         res = avcodec_open2(v_st->codec, v->codec, NULL);
         if (res < 0) {
             MARM_ERROR(ctx, "could not open codec: %d - %s", res, av_err2str(res));
             res = -1;
             goto cleanup;
         }
+
         res = av_new_packet(&v_pkt, 1024);
         if (res != 0) {
             MARM_ERROR(ctx, "could not create new packet: %d - %s", res, av_err2str(res));
             res = -1;
             goto cleanup;
         }
+
         v_pkts = 1;
     }
 
     // add audio stream
     if (a) {
+        // codec stream
         a_st = avformat_new_stream(o_ctx, a->codec);
         if (!a_st) {
             res = -1;
             goto cleanup;
         }
-        a_st->codec->sample_fmt  = a->codec->sample_fmts ? a->codec->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
+
+        // codec params
+        a_st->codec->sample_fmt = a->codec->sample_fmts ? a->codec->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
         a_st->codec->bit_rate = a->bit_rate;
         a_st->codec->sample_rate = a->sample_rate;
         if (a->codec->supported_samplerates) {
@@ -138,12 +143,12 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
             }
         }
         a_st->codec->channels = av_get_channel_layout_nb_channels(a_st->codec->channel_layout);
-        a_st->codec->channel_layout = AV_CH_LAYOUT_STEREO;
+        a_st->codec->channel_layout = a->channel_layout;
         if (a->codec->channel_layouts) {
             a_st->codec->channel_layout = a->codec->channel_layouts[0];
             for (i = 0; a->codec->channel_layouts[i]; i++) {
-                if (a->codec->channel_layouts[i] == AV_CH_LAYOUT_STEREO)
-                    a_st->codec->channel_layout = AV_CH_LAYOUT_STEREO;
+                if (a->codec->channel_layouts[i] == a->channel_layout)
+                    a_st->codec->channel_layout = a->channel_layout;
             }
         }
         a_st->codec->channels = av_get_channel_layout_nb_channels(a_st->codec->channel_layout);
@@ -152,18 +157,27 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
         }
         a_st->time_base = a->time_base;
         a_st->codec->time_base = a_st->time_base;
+
+        // context for stream codec
         res = avcodec_open2(a_st->codec, a->codec, NULL);
         if (res < 0) {
             MARM_ERROR(ctx, "could not open codec: %d - %s", res, av_err2str(res));
             res = -1;
             goto cleanup;
         }
+
+        // initial padding
+        if (a->initial_padding != -1) {
+            a_st->codec->initial_padding = a->initial_padding;
+        }
+
         res = av_new_packet(&a_pkt, 1024);
         if (res != 0) {
             MARM_ERROR(ctx, "could not create new packet: %d - %s", res, av_err2str(res));
             res = -1;
             goto cleanup;
         }
+
         a_pkts = 1;
     }
 
@@ -178,10 +192,10 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
         buffer,
         buffer_len,
         1,
-        m,
+        &file_ctx,
         NULL,
-        write,
-        seek
+        file_write,
+        file_seek
     );
     if (o_ctx->pb == NULL) {
         MARM_ERROR(ctx, "could not allocate i/o context");
@@ -214,8 +228,8 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
             // write video packet
             av_packet_rescale_ts(&v_pkt, v_st->codec->time_base, v_st->time_base);
             v_pkt.stream_index = v_st->index;
-            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, &v_pkt, &v_st->time_base);
-            if ((m->flags & MARM_MUX_FLAG_MONOTONIC_FILTER) && v_pkt.pts <= v_pts) {
+            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "video ", &v_pkt, &v_st->time_base);
+            if ((flags & MARM_MUX_FLAG_MONOTONIC_FILTER) && v_pkt.pts <= v_pts) {
                 MARM_INFO(ctx, "dropping video packet w/ non-monotonically increasing pts %"PRId64" <= %"PRId64"", v_pkt.pts, v_pts);
             } else {
                 v_pts = v_pkt.pts;
@@ -223,6 +237,12 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
                 if (res != 0) {
                     MARM_ERROR(ctx, "could not write video frame: %d - %s", res, av_err2str(res));
                     res = MARM_RESULT_WRITE_FAILED;
+                    goto cleanup;
+                }
+                res = av_new_packet(&v_pkt, 1024);
+                if (res != 0) {
+                    MARM_ERROR(ctx, "could not create new packet: %d - %s", res, av_err2str(res));
+                    res = -1;
                     goto cleanup;
                 }
             }
@@ -236,8 +256,8 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
             // write audio packet
             av_packet_rescale_ts(&a_pkt, a_st->codec->time_base, a_st->time_base);
             a_pkt.stream_index = a_st->index;
-            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, &a_pkt, &a_st->time_base);
-            if ((m->flags & MARM_MUX_FLAG_MONOTONIC_FILTER) && a_pkt.pts <= a_pts) {
+            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "audio ", &a_pkt, &a_st->time_base);
+            if ((flags & MARM_MUX_FLAG_MONOTONIC_FILTER) && a_pkt.pts <= a_pts) {
                 MARM_INFO(ctx, "dropping audio packet w/ non-monotonically increasing pts %"PRId64" <= %"PRId64"", a_pkt.pts, a_pts);
             } else {
                 a_pts = a_pkt.pts;
@@ -247,7 +267,12 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
                     res = MARM_RESULT_WRITE_FAILED;
                     goto cleanup;
                 }
-                a_pts = a_pkt.pts;
+                res = av_new_packet(&a_pkt, 1024);
+                if (res != 0) {
+                    MARM_ERROR(ctx, "could not create new packet: %d - %s", res, av_err2str(res));
+                    res = -1;
+                    goto cleanup;
+                }
             }
 
             // read next audio packet
@@ -264,7 +289,7 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
     }
 
     // write trailer
-    res= av_write_trailer(o_ctx);
+    res = av_write_trailer(o_ctx);
     if (res != 0) {
         MARM_ERROR(ctx, "could not write trailer: %d - %s", res, av_err2str(res));
         res = -1;
@@ -272,9 +297,8 @@ int marm_mux(marm_mux_t *m, marm_mux_v_t *v, marm_mux_a_t *a) {
     }
 
 cleanup:
-    av_free_packet(&a_pkt);
-
     av_free_packet(&v_pkt);
+    av_free_packet(&a_pkt);
 
     if  (buffer) {
         av_free(buffer);

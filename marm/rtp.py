@@ -9,9 +9,12 @@ import datetime
 import inspect
 import itertools
 import logging
+import math
 import os
 import StringIO
 import struct
+
+from . import ext
 
 
 logger = logging.getLogger(__name__)
@@ -70,6 +73,20 @@ class RTPPayload(object):
 
     @abc.abstractmethod
     def unpack(self, buf):
+        pass
+
+
+class RTPAudioPayloadMixin(object):
+    """
+    `RTPPayload` mixin used to query audio information.
+    """
+
+    @abc.abstractproperty
+    def nb_samples(self):
+        pass
+
+    @abc.abstractproperty
+    def nb_channels(self):
         pass
 
 
@@ -271,11 +288,11 @@ class RTPPacketReader(collections.Iterable):
 
     @contextlib.contextmanager
     def restoring(self):
-        pos = self.tell()
+        pos = self.fo.tell()
         try:
             yield
         finally:
-            self.seek(pos)
+            self.fo.seek(pos)
 
 
 class RTPCursor(collections.Iterable):
@@ -294,6 +311,19 @@ class RTPCursor(collections.Iterable):
             self.part = self.parts[self.pos_part]
         else:
             self.part = None
+        self.c = collections.defaultdict(dict)
+
+    def cache(self, tag, key, value=None):
+        if value is not None:
+            self.c[tag][key] = value
+            return value
+        return self.c[tag].get(key)
+
+    def spans(self, (b_part, b_pkt), (e_part, e_pkt)):
+        for part in range(b_part, e_part + 1):
+            b_pkt = b_pkt if part == b_part else 0
+            e_pkt = e_pkt if part == e_part else -1
+            yield part, b_pkt, e_pkt
 
     def seek(self, (pos_part, pos_pkt)):
         if self.tell() == (pos_part, pos_pkt):
@@ -339,7 +369,28 @@ class RTPCursor(collections.Iterable):
         self.each(stop, func)
         return s['count']
 
-    def search(self, match, direction='forward'):
+    def compute(self, m, r, stop, zero=0, cache=None):
+        value = zero
+        org = self.tell()
+        for part, b_pos, e_pos in self.spans(org, stop):
+            if cache:
+                if b_pos == 0 and e_pos == -1:
+                    v = self.cache(cache, (part, b_pos, e_pos))
+                    if v is not None:
+                        value = reduce(r, [v], value)
+                        continue
+            self.seek((part, b_pos))
+            v = reduce(
+                r,
+                (m(pkt) for pkt in self.slice((part, e_pos), inclusive=e_pos == -1)),
+                zero,
+            )
+            if cache and b_pos == 0 and e_pos == -1:
+                self.cache(cache, (part, b_pos, e_pos), v)
+            value = reduce(r, [v], value)
+        return value
+
+    def search(self, match, dir='forward'):
 
         def fwd():
             _, pkt = self._next()
@@ -352,9 +403,9 @@ class RTPCursor(collections.Iterable):
         step = {
             'forward': fwd,
             'backward': bwd,
-        }.get(direction)
+        }.get(dir)
         if not step:
-            raise ValueError('Invalid direction "{0}".'.format(direction))
+            raise ValueError('Invalid direction "{0}".'.format(dir))
 
         try:
             while True:
@@ -404,77 +455,158 @@ class RTPCursor(collections.Iterable):
     def fastforward(self, secs):
         # FIXME: sum inter-packet delta w/ reset detection?
         if not secs:
-            return self.tell()
+            return 0
         if secs < 0:
             return self.rewind(-secs)
         start = self.current().secs
         match = lambda pkt: pkt.secs - start >= secs
         self.search(match, 'forward')
-        return self.tell()
+        return (self.current().secs - start) - secs
 
     def rewind(self, secs):
         # FIXME: sum inter-packet delta w/ reset detection?
         if not secs:
-            return self.tell()
+            return 0
         if secs < 0:
             return self.fastforward(-secs)
         start = self.current().secs
         match = lambda pkt: start - pkt.secs >= secs
         self.search(match, 'backward')
-        return self.tell()
+        return (start - self.current().secs) - secs
 
     def time_cut(self, begin_secs, end_secs):
+        """
+        """
         org = self.tell()
         
         # head
-        self.fastforward(begin_secs)
+        begin_dt = self.fastforward(begin_secs)
         base = self.tell()
         if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
             self.prev_start_of_frame()
         start = self.tell()
         self.seek(base)
-        start_secs = begin_secs + self.interval(start)
-        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
-            if not self.current().data.is_key_frame:
-                self.prev_key_frame()
-        lead = self.tell()
-        self.seek(base)
-        lead_secs = begin_secs + self.interval(lead)
+        start_secs = begin_secs + begin_dt + self.interval(start)
 
         # tail
         self.seek(org)
-        self.fastforward(end_secs)
+        if end_secs is None:
+            end_secs, end_dt = self.interval((-1, -1)), 0
+        else:
+            end_dt = self.fastforward(end_secs)
         base = self.tell()
         if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
             self.prev_start_of_frame()
         stop = self.tell()
         self.seek(base)
-        stop_secs = end_secs + self.interval(stop)
+        stop_secs = end_secs + end_dt + self.interval(stop)
         
-        return (lead, start, stop), (lead_secs, start_secs, stop_secs)
+        return start, start_secs, stop, stop_secs
 
     def time_positions(self, *args):
-        args = sorted([(secs, i) for i, secs in enumerate(args)])
-        prev = 0
+        """
+        """
         pos = []
-        for secs, i in args:
-            off_secs = secs - prev
-            self.fastforward(off_secs)
-            pos.append((i, self.tell()))
-            prev += off_secs
-        return (p for _, p in sorted(pos))
+        org = self.tell()
+        for secs in args:
+            self.seek(org)
+            self.fastforward(secs)
+            pos.append(self.tell())
+        return pos
+    
+    def trim_frames(self, stop, samples, scale=7, org=(0, 0)):
+        start = self.tell()
+        size = self.current().data.nb_channels * samples
+        target = int(math.ceil(scale / 2))
+
+        b, b_samples, b_off, b_scale = self.align_frame(
+            samples, scale=scale, org=org,
+        )
+        b_idx = 0 if b == start else max(b_scale - target, 0)
+
+        self.seek(stop)
+        _, e_samples, e_off, _ = self.align_frame(
+            samples, scale=target, org=org,
+        )
+
+        total = (e_samples + e_off) - (b_samples + b_off)
+        e_idx = int(total / size) - 1
+
+        logger.info(
+            'trim %s, %s -> %s, %s w/ offset @ %s, range %s',
+            start, stop, b, stop, b_off, (b_idx, e_idx),
+        )
+        return b, stop, b_off, (b_idx, e_idx)
+
+    def align_frame(self, samples, scale=1, dir='backward', org=(0, 0)):
+        """
+        
+        :param samples:
+        :param scale: 
+        :param dir:
+        :param trim:
+        :param org:
+        
+        :return:
+        """
+
+        def _align(pkt):
+            s['count'] += pkt.data.nb_samples * pkt.data.nb_channels
+            return s['count'] >= size
+
+        def _scale(pkt):
+            s['count'] += pkt.data.nb_samples * pkt.data.nb_channels
+            return s['count'] >= scale * size
+
+        start = self.tell()
+        pkt = self.current()
+        size = pkt.data.nb_channels * samples
+
+        # seek to alignment
+        s = {'count': 0}
+        pkt = self.search(_align, dir=dir)
+        if pkt is None:
+            pos, samples, off = start, 0, 0
+        else:
+            # calculate samples up to alignment
+            pos = self.tell()
+            self.seek(org)
+            samples = self.compute(
+                lambda pkt: pkt.data.nb_samples * pkt.data.nb_channels,
+                lambda x, y: x + y,
+                pos,
+                cache='samples',
+            )
+            off = 0 if samples % size == 0 else (size - (samples % size))
+
+            # scale
+            s = {'count': off}
+            self.search(_scale, dir=dir)
+            scaled_samples = samples - (s['count'] - off)
+            scaled_off = 0 if scaled_samples % size == 0 else size - (scaled_samples % size)
+            scaled_pos = self.tell()
+            scale = int(((samples + off) - (scaled_samples + scaled_off)) / size)
+            pos, samples, off = scaled_pos, scaled_samples, scaled_off
+
+        logger.info(
+            'aligned %s -> %s @ %s samples w/ trim %s',
+            start, pos, samples, off
+        )
+        return pos, samples, off, scale
 
     def prev(self):
         _, pkt = self._prev()
         return pkt
 
-    def slice(self, stop):
+    def slice(self, stop, inclusive=False):
         if stop < self.tell():
             yield self.current()
             try:
                 while True:
                     pos, pkt = self._prev()
                     if pos <= stop:
+                        if inclusive:
+                            yield pkt
                         break
                     yield pkt
             except StopIteration:
@@ -485,6 +617,8 @@ class RTPCursor(collections.Iterable):
                 while True:
                     pos, pkt = self._next()
                     if pos >= stop:
+                        if inclusive:
+                            yield pkt
                         break
                     yield pkt
             except StopIteration:
@@ -733,6 +867,19 @@ def estimate_video_frame_rate(packets, window=10):
         if pkt.data.is_start_of_frame:
             ts.append(pkt.secs)
     return (len(ts) - 1) / (ts[-1] - ts[0])
+
+
+def probe_audio_channel_layout(packets):
+    """
+    Determines audio channel layout from first packet.
+    """
+    pkt = iter(packets).next()
+    nb_channels = pkt.data.nb_channels
+    if nb_channels == 1:
+        return ext.AV_CH_LAYOUT_MONO
+    elif nb_channels == 2:
+        return ext.AV_CH_LAYOUT_STEREO
+    raise ValueError('Unsupported number of channel {0}.'.format(nb_channels))
 
 
 def split_packets(packets, duration=None, count=None):

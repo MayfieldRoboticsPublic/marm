@@ -13,7 +13,7 @@ import logging
 import os
 import re
 
-from . import __version__, rtp, vp8, opus, mjr, mux_frames, Frames, VideoFrame, VideoFrames
+from . import __version__, rtp, vp8, opus, mjr, frame, Frames, VideoFrame, VideoFrames
 
 
 logger = logging.getLogger(__name__)
@@ -340,7 +340,7 @@ def mux_parser(cmd_parsers, parents):
         help=(
             'packet-type(s) ({0}) separated by , (interleaved) or | (grouped) '
             'describing input archives to follow'
-            .format(', '.join(packet_types.keys())),
+            .format(', '.join(packet_types.keys()))
         ),
         metavar='DESCRIPTION',
     )
@@ -452,6 +452,9 @@ def mux_cmd(args):
             a_prof['sample_rate'] = 48000
         if 'bit_rate' not in a_prof:
             a_prof['bit_rate'] = 96000
+        if 'channel_layout' not in a_prof:
+            with v_cur.restoring():
+                a_prof['channel_layout'] = rtp.probe_audio_channel_layout(a_cur)
         a_prof['time_base'] = (1, 1000)
         logger.info(
             'using audio profile -\n%s',
@@ -473,7 +476,7 @@ def mux_cmd(args):
                 'Not overwriting existing container "{0}"'.format(container)
             )
         with open(args.container[0], 'wb') as fo:
-            mux_frames(
+            frame.mux(
                 fo,
                 audio_profile=a_prof,
                 audio_packets=a_frames,

@@ -7,16 +7,16 @@
 #include <libavutil/timestamp.h>
 #include <libswresample/swresample.h>
 
-
 /* results */
 
 #define MARM_RESULT_OK              0
 #define MARM_RESULT_ABORTED         1
 #define MARM_RESULT_WRITE_FAILED    2
+#define MARM_RESULT_MEMORY_ERROR    3
 
 typedef int marm_result_t;
 
-/* loggging */
+/* logging */
 
 #define MARM_LOG(ctx, level, format, ...) ctx->log ? ctx->log(ctx, level, format, ##__VA_ARGS__) : 0;
 
@@ -30,10 +30,11 @@ typedef int marm_result_t;
 #define MARM_WARN(ctx, format, ...)     MARM_LOG(ctx, MARM_LOG_LEVEL_WARN, format, ##__VA_ARGS__)
 #define MARM_ERROR(ctx, format, ...)    MARM_LOG(ctx, MARM_LOG_LEVEL_ERROR, format, ##__VA_ARGS__)
 
-#define MARM_LOG_PACKET(ctx, level, pkt, tb) \
+#define MARM_LOG_PACKET(ctx, level, prefix, pkt, tb) \
     MARM_LOG( \
         ctx, \
         level, \
+        prefix \
         "pts:%s pts_time:%s dts:%s dts_time:%s duration:%s duration_time:%s stream_index:%d size:%d flags:%04x", \
         av_ts2str((pkt)->pts), av_ts2timestr((pkt)->pts, tb), \
         av_ts2str((pkt)->dts), av_ts2timestr((pkt)->dts, tb), \
@@ -75,6 +76,16 @@ typedef long (*marm_seek_t)(marm_ctx_t *ctx, void *file, long offset, int whence
  */
 typedef int (*marm_next_packet_t)(marm_ctx_t *ctx, void *packets, AVPacket *packet);
 
+#define MARM_PACKET_FILTER_KEEP 0
+#define MARM_PACKET_FILTER_DROP 1
+#define MARM_PACKET_FILTER_KEEP_ALL 2
+#define MARM_PACKET_FILTER_DROP_ALL 3
+
+/**
+ * Filter packet callback.
+ */
+typedef int (*marm_filter_packet_t)(marm_ctx_t *ctx, void *filter, AVPacket *packet);
+
 /**
  * Platform (logging, file i/o, etc) context.
  */
@@ -85,7 +96,19 @@ typedef struct marm_ctx_s {
     marm_write_t write;
     marm_seek_t seek;
     marm_next_packet_t next_packet;
+    marm_filter_packet_t filter_packet;
 } marm_ctx_t;
+
+#define MARM_MPEGTS_PAT_PID  0x0000
+#define MARM_MPEGTS_SDT_PID  0x0011
+
+/**
+ * MPEGTS continuity counter.
+ */
+typedef struct marm_mpegts_cc_s {
+    int pid;
+    int cc;
+} marm_mpegts_cc_t;
 
 /**
  * Video generation context.
@@ -129,26 +152,19 @@ marm_result_t marm_gen_v(marm_gen_v_t *ctx, int64_t dur, int raw);
  * Audio generation context.
  */
 typedef struct marm_gen_a_s {
-    marm_ctx_t *ctx;
-    void *file;
     const char *encoder_name;
     int bit_rate;
     int sample_rate;
-    float t;
-    float t_inc;
-    float t_inc2;
-    AVFrame *src_frame;
-    AVFrame *res_frame;
-    SwrContext *swr_ctx;
+    uint64_t channel_layout;
     AVCodec *codec;
     AVCodecContext *codec_ctx;
-    int64_t pts;
+    AVRational time_base;
 } marm_gen_a_t;
 
 /**
  * Initializes audio generation resources.
  */
-marm_result_t marm_gen_a_open(marm_gen_a_t *a);
+marm_result_t marm_gen_a_open(marm_ctx_t *ctx, marm_gen_a_t *a);
 
 /**
  * Frees audio generation resources.
@@ -158,12 +174,22 @@ void marm_gen_a_close(marm_gen_a_t *a);
 /**
  * Writes audio profile information used for generation.
  */
-marm_result_t marm_gen_a_header(marm_gen_a_t *a);
+marm_result_t marm_gen_a_header(marm_ctx_t *ctx, void *file, marm_gen_a_t *p);
 
 /**
  * Generates and writes encoded audio packets.
  */
-marm_result_t marm_gen_a(marm_gen_a_t* a, int64_t dur, int raw);
+marm_result_t marm_gen_a(
+    marm_ctx_t *ctx,
+    void *file,
+    int *nb_samples,
+    int *nb_frames,
+    marm_gen_a_t* p,
+    const char *type,
+    int64_t dur,
+    int samples,
+    int64_t offset_ts,
+    int raw);
 
 /**
  * Video stream to be muxed.
@@ -201,7 +227,9 @@ typedef struct marm_mux_a_s {
     const char *encoder_name;
     int bit_rate;
     int sample_rate;
+    uint64_t channel_layout;
     AVRational time_base;
+    int initial_padding;
     AVCodec *codec;
     AVStream *st;
 } marm_mux_a_t;
@@ -219,40 +247,42 @@ void marm_mux_a_close(marm_mux_a_t *a);
 #define MARM_MUX_FLAG_MONOTONIC_FILTER 1 << 0   /* Drop packets w/ non-monotonically increasing timestamp */
 
 /**
- * Mux context.
+ * Mux streams into a container.
  */
-typedef struct marm_mux_s {
-    marm_ctx_t *ctx;
-    void *file;
-    int flags;
-    const char *format_name;
-    const char *format_extension;
-} marm_mux_t;
+marm_result_t marm_mux(
+    marm_ctx_t *ctx,
+    void *file,
+    int flags,
+    const char *format_name, const char *format_extension,
+    marm_mux_v_t *v,
+    marm_mux_a_t *a);
 
 /**
- * Mux video and audio streams.
+ * Re-mux from one container into another.
  */
-marm_result_t marm_mux(marm_mux_t *ctx, marm_mux_v_t *v, marm_mux_a_t *a);
+marm_result_t marm_remux(
+    marm_ctx_t *ctx,
+    void *out_file,
+    const char *out_format_name,
+    const char *out_format_extension,
+    void *in_file,
+    const char *in_format_name,
+    const char *in_format_extension,
+    void *filter,
+    marm_mpegts_cc_t *mpegts_ccs,
+    int nb_mpegts_cc,
+    AVDictionary *opts);
 
 /**
- * Container stat context.
+ * Scan container.
  */
-typedef struct marm_stat_s {
-    marm_ctx_t *ctx;
-    void *file;
-    const char *format_name;
-    const char *format_extension;
-    AVFormatContext *format;
-} marm_stat_t;
-
-/**
- * Determines container format.
- */
-marm_result_t marm_stat(marm_stat_t *s);
-
-/**
- * Frees stat context resources.
- */
-void marm_stat_close(marm_stat_t *s);
+marm_result_t marm_scan(
+    marm_ctx_t *ctx,
+    void *in_file,
+    const char *in_format_name,
+    const char *in_format_extension,
+    marm_mpegts_cc_t *mpegts_ccs,
+    int *nb_mpegts_cc,
+    int max_nb_mpegts_cc);
 
 #endif /* MARM_H */

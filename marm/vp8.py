@@ -266,7 +266,7 @@ class VP8RTPPacket(rtp.RTPTimeMixin, rtp.RTPPacket):
     https://tools.ietf.org/html/draft-ietf-payload-vp8-16
     """
 
-    # rtp.RTPPacket
+    # RTPPacket
 
     type = rtp.RTPPacket.VIDEO_TYPE
 

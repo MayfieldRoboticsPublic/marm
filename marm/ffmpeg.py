@@ -28,6 +28,9 @@ class Process(subprocess.Popen):
     #: Location of executable.
     bin = None
 
+    #: Log level to use.
+    log_level = logging.DEBUG
+
     #: Error type.
     Error = Error
 
@@ -42,10 +45,12 @@ class Process(subprocess.Popen):
         )
 
     def __call__(self, error='raise'):
-        logger.info('%s ...', self.line)
+        logger.debug('%s ...', self.line)
         stdout, stderr = self.communicate()
-        log = (logger.error if self.returncode != 0 else logger.info)
-        log('%s = %s - \n%s', self.line, self.returncode, stderr)
+        log_level = (logging.ERROR if self.returncode != 0 else self.log_level)
+        logging.log(
+            log_level, '%s = %s - \n%s', self.line, self.returncode, stderr,
+        )
         if self.returncode != 0:
             self._rejected(stdout, stderr)
             if error == 'raise':

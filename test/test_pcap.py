@@ -34,12 +34,12 @@ def test_extract_frames_from_pcap(
     ('capture,'
      'a_pt,a_ssrc,a_pkt_type,a_enc,'
      'v_pt,v_ssrc,v_pkt_type,v_enc,'
-     'fmt,'
+     'fmt,fmt_name,'
      'expected'), [
         ('streets-of-rage.pcap',
          111, 4286666423, marm.opus.OpusRTPPacket, 'libopus',
          100, 3830765780, marm.vp8.VP8RTPPacket, 'libvpx',
-         'mkv',
+         'mkv', 'matroska',
          0),
     ])
 def test_mux_frames_from_pcap(
@@ -48,7 +48,7 @@ def test_mux_frames_from_pcap(
         capture,
         a_pt, a_ssrc, a_pkt_type, a_enc,
         v_pt, v_ssrc, v_pkt_type, v_enc,
-        fmt,
+        fmt, fmt_name,
         expected):
     c_path = fixtures.join(capture)
     m_path = tmpdir.join('m.{0}'.format(fmt))
@@ -80,10 +80,11 @@ def test_mux_frames_from_pcap(
         v_pkts.reset()
         v_pkts = marm.rtp.head_packets(v_pkts, duration=10)
 
-        marm.mux_frames(
+        marm.frame.mux(
             m_fo,
             audio_profile={
                 'encoder_name': a_enc,
+                'channel_layout': marm.frame.AudioFrame.CHANNEL_LAYOUT_STEREO,
                 'bit_rate': 96000,
                 'sample_rate': 48000,
                 'time_base': (1, 1000),
@@ -101,7 +102,11 @@ def test_mux_frames_from_pcap(
             video_packets=marm.VideoFrames(v_pkts),
         )
 
-    with m_path.open('rb') as fo:
-        m_stat = marm.stat_format(fo)
-    assert m_stat.nb_streams == 2
-    assert fmt in m_stat.iformat.extensions.split(',')
+    probe = marm.FFProbe([
+        '-show_streams',
+        '-show_format',
+        m_path.strpath,
+    ])
+    probe()
+    assert len(probe.result['streams']) == 2
+    assert fmt_name in probe.result['format']['format_name'].split(',')
