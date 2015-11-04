@@ -5,7 +5,6 @@
 
 /* video */
 
-
 static int fill_video_frame(marm_gen_v_t *v) {
     int res, x, y, pts = v->pts;
     AVFrame *frame = v->frame;
@@ -36,7 +35,6 @@ static int fill_video_frame(marm_gen_v_t *v) {
 
     return 0;
 }
-
 
 marm_result_t marm_gen_v_open(marm_gen_v_t *v) {
     int res = 0;
@@ -169,7 +167,7 @@ marm_result_t marm_gen_v(marm_gen_v_t* v, int64_t dur, int data_only) {
         if (!got_packet) {
             continue;
         }
-        MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, &pkt, &codec_ctx->time_base)
+        MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "video ", &pkt, &codec_ctx->time_base)
 
         // write packet
         if (!data_only) {
@@ -198,105 +196,80 @@ cleanup:
 
 /* audio */
 
-static void fill_audio_frame(marm_gen_a_t *a) {
+struct a_state_s;
+
+typedef void (*fill_audio_frame_t)(struct a_state_s *s, marm_gen_a_t *p);
+
+typedef struct a_state_s {
+    int64_t pts;
+    AVFrame *src_frame;
+    AVFrame *res_frame;
+    SwrContext *swr_ctx;
+    fill_audio_frame_t fill_frame;
+    float t;
+    float t_inc;
+    float t_inc2;
+} a_state_t;
+
+static void sin_audio_frame(a_state_t *s, marm_gen_a_t *p) {
     int j, i, v;
-    int16_t *d = (int16_t *) a->src_frame->data[0];
+    int16_t *d = (int16_t *)s->src_frame->data[0];
 
-    for (j = 0; j < a->src_frame->nb_samples; j++) {
-        v = (int) (sin(a->t) * 10000);
-        for (i = 0; i < a->codec_ctx->channels; i++)
+    for (j = 0; j < s->src_frame->nb_samples; j++) {
+        v = (int) (sin(s->t) * 10000);
+        for (i = 0; i < p->codec_ctx->channels; i++)
             *d++ = v;
-        a->t += a->t_inc;
-        a->t_inc += a->t_inc2;
+        s->t += s->t_inc;
+        s->t_inc += s->t_inc2;
     }
-    a->src_frame->pts = a->pts;
+    s->src_frame->pts = s->pts;
 }
 
-void marm_gen_a_close(marm_gen_a_t *a) {
-   if (a->src_frame) {
-       av_frame_free(&a->src_frame);
-   }
-
-   if (a->res_frame) {
-      av_frame_free(&a->res_frame);
-  }
-
-   if (a->codec_ctx) {
-       avcodec_free_context(&a->codec_ctx);
-   }
-
-   if (a->swr_ctx) {
-       swr_close(a->swr_ctx);
-       swr_free(&a->swr_ctx);
-   }
+static void zero_audio_frame(a_state_t *s, marm_gen_a_t *p) {
+    memset(
+        s->src_frame->data[0],
+        0,
+        s->src_frame->nb_samples * p->codec_ctx->channels * sizeof(int16_t)
+   );
+    s->src_frame->pts = s->pts;
 }
 
-marm_result_t marm_gen_a_open(marm_gen_a_t *a) {
-    int res = 0, i, nb_samples;
-    marm_ctx_t *ctx = a->ctx;
+static void a_state_close(marm_ctx_t *ctx, a_state_t *s) {
+    if (s->src_frame) {
+        av_frame_free(&s->src_frame);
+    }
+    if (s->res_frame) {
+        av_frame_free(&s->res_frame);
+    }
+    if (s->swr_ctx) {
+       swr_close(s->swr_ctx);
+       swr_free(&s->swr_ctx);
+    }
+}
 
-    // codec
-    a->codec = avcodec_find_encoder_by_name(a->encoder_name);
-    if (a->codec == NULL) {
-        MARM_ERROR(ctx, "could not find codec for \"%s\"", a->encoder_name);
-        res = 0;
-        goto cleanup;
-    }
-
-    // codec context
-    a->codec_ctx = avcodec_alloc_context3(a->codec);
-    if (a->codec_ctx == NULL) {
-        MARM_ERROR(ctx, "could not allocate codec context");
-        res = -1;
-        goto cleanup;
-    }
-    a->codec_ctx->sample_fmt = a->codec->sample_fmts ? a->codec->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
-    a->codec_ctx->bit_rate = a->bit_rate;
-    a->codec_ctx->sample_rate = a->sample_rate;
-    a->codec_ctx->time_base = (AVRational ) { 1, a->sample_rate };
-    if (a->codec->supported_samplerates) {
-        a->codec_ctx->sample_rate = a->codec->supported_samplerates[0];
-        for (i = 0; a->codec->supported_samplerates[i]; i++) {
-            if (a->codec->supported_samplerates[i] == a->sample_rate)
-                a->codec_ctx->sample_rate = a->sample_rate;
-        }
-    }
-    a->codec_ctx->channels = av_get_channel_layout_nb_channels(a->codec_ctx->channel_layout);
-    a->codec_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
-    if (a->codec->channel_layouts) {
-        a->codec_ctx->channel_layout = a->codec->channel_layouts[0];
-        for (i = 0; a->codec->channel_layouts[i]; i++) {
-            if (a->codec->channel_layouts[i] == AV_CH_LAYOUT_STEREO)
-                a->codec_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
-        }
-    }
-    a->codec_ctx->channels = av_get_channel_layout_nb_channels(a->codec_ctx->channel_layout);
-    res = avcodec_open2(a->codec_ctx, a->codec, NULL);
-    if (res < 0) {
-        MARM_ERROR(ctx, "could not open audio codec: %s", av_err2str(res));
-        res = -1;
-        goto cleanup;
-    }
+static marm_result_t a_state_open(marm_ctx_t *ctx, a_state_t *s, marm_gen_a_t *p) {
+    marm_result_t res = MARM_RESULT_OK;
+    int nb_samples;
 
     // number of samples
-    if (a->codec->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE)
+    if (p->codec->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE)
         nb_samples = 10000;
     else
-        nb_samples = a->codec_ctx->frame_size;
+        nb_samples = p->codec_ctx->frame_size;
 
     // source frame
-    a->src_frame = av_frame_alloc();
-    if (!a->src_frame) {
+    s->src_frame = av_frame_alloc();
+    if (!s->src_frame) {
         MARM_ERROR(ctx, "could not allocate source frame");
         res = -1;
         goto cleanup;
     }
-    a->src_frame->format = AV_SAMPLE_FMT_S16;
-    a->src_frame->channel_layout = a->codec_ctx->channel_layout;
-    a->src_frame->sample_rate = a->codec_ctx->sample_rate;
+    s->src_frame->format = AV_SAMPLE_FMT_S16;
+    s->src_frame->channel_layout = p->codec_ctx->channel_layout;
+    s->src_frame->sample_rate = p->codec_ctx->sample_rate;
 
-    a->src_frame->nb_samples = nb_samples;
-    res = av_frame_get_buffer(a->src_frame, 0);
+    s->src_frame->nb_samples = nb_samples;
+    res = av_frame_get_buffer(s->src_frame, 0);
     if (res < 0) {
         MARM_ERROR(ctx, "could not get frame buffers: %s", av_err2str(res));
         res = -1;
@@ -304,18 +277,18 @@ marm_result_t marm_gen_a_open(marm_gen_a_t *a) {
     }
 
     // resampled frame
-    a->res_frame = av_frame_alloc();
-    if (!a->res_frame) {
+    s->res_frame = av_frame_alloc();
+    if (!s->res_frame) {
         MARM_ERROR(ctx, "could not allocate resampled frame");
         res = -1;
         goto cleanup;
     }
-    a->res_frame->format = a->codec_ctx->sample_fmt;
-    a->res_frame->channel_layout = a->codec_ctx->channel_layout;
-    a->res_frame->sample_rate = a->codec_ctx->sample_rate;
+    s->res_frame->format = p->codec_ctx->sample_fmt;
+    s->res_frame->channel_layout = p->codec_ctx->channel_layout;
+    s->res_frame->sample_rate = p->codec_ctx->sample_rate;
 
-    a->res_frame->nb_samples = nb_samples;
-    res = av_frame_get_buffer(a->res_frame, 0);
+    s->res_frame->nb_samples = nb_samples;
+    res = av_frame_get_buffer(s->res_frame, 0);
     if (res < 0) {
         MARM_ERROR(ctx, "could not get frame buffers: %s", av_err2str(res));
         res = -1;
@@ -323,109 +296,205 @@ marm_result_t marm_gen_a_open(marm_gen_a_t *a) {
     }
 
     // resampling
-    a->swr_ctx = swr_alloc();
-    if (!a->swr_ctx) {
+    s->swr_ctx = swr_alloc();
+    if (!s->swr_ctx) {
         MARM_ERROR(ctx, "could not alloc resampling context");
         res = -1;
         goto cleanup;
     }
-    av_opt_set_int(a->swr_ctx, "in_channel_count", a->codec_ctx->channels, 0);
-    av_opt_set_int(a->swr_ctx, "in_sample_rate", a->codec_ctx->sample_rate, 0);
-    av_opt_set_sample_fmt(a->swr_ctx, "in_sample_fmt", AV_SAMPLE_FMT_S16, 0);
-    av_opt_set_int(a->swr_ctx, "out_channel_count", a->codec_ctx->channels, 0);
-    av_opt_set_int(a->swr_ctx, "out_sample_rate", a->codec_ctx->sample_rate, 0);
-    av_opt_set_sample_fmt(a->swr_ctx, "out_sample_fmt", a->codec_ctx->sample_fmt, 0);
-    res = swr_init(a->swr_ctx);
+    av_opt_set_int(s->swr_ctx, "in_channel_count", p->codec_ctx->channels, 0);
+    av_opt_set_int(s->swr_ctx, "in_sample_rate", p->codec_ctx->sample_rate, 0);
+    av_opt_set_sample_fmt(s->swr_ctx, "in_sample_fmt", AV_SAMPLE_FMT_S16, 0);
+    av_opt_set_int(s->swr_ctx, "out_channel_count", p->codec_ctx->channels, 0);
+    av_opt_set_int(s->swr_ctx, "out_sample_rate", p->codec_ctx->sample_rate, 0);
+    av_opt_set_sample_fmt(s->swr_ctx, "out_sample_fmt", p->codec_ctx->sample_fmt, 0);
+    res = swr_init(s->swr_ctx);
     if (res < 0) {
         MARM_ERROR(ctx, "could not initialized resampling context: %d", res);
         res = -1;
         goto cleanup;
     }
 
-    a->t = 0;
-    a->t_inc = 2 * M_PI * 110.0 / a->codec_ctx->sample_rate;
-    a->t_inc2 = 2 * M_PI * 110.0 / a->codec_ctx->sample_rate / a->codec_ctx->sample_rate;
+    s->pts = 0;
 
-    a->pts = 0;
+    s->t = 0;
+    s->t_inc = 2 * M_PI * 110.0 / p->codec_ctx->sample_rate;
+    s->t_inc2 = 2 * M_PI * 110.0 / p->codec_ctx->sample_rate / p->codec_ctx->sample_rate;
+
 
 cleanup:
-    if (res < 0) {
-        marm_gen_a_close(a);
+    if (res != MARM_RESULT_OK) {
+        a_state_close(ctx, s);
     }
 
     return res;
 }
 
-marm_result_t marm_gen_a_header(marm_gen_a_t *a) {
+marm_result_t marm_gen_a_open(marm_ctx_t *ctx, marm_gen_a_t *p) {
+    int res = 0, i;
+
+    // codec
+    p->codec = avcodec_find_encoder_by_name(p->encoder_name);
+    if (p->codec == NULL) {
+        MARM_ERROR(ctx, "could not find codec for \"%s\"", p->encoder_name);
+        res = 0;
+        goto cleanup;
+    }
+
+    // codec context
+    p->codec_ctx = avcodec_alloc_context3(p->codec);
+    if (p->codec_ctx == NULL) {
+        MARM_ERROR(ctx, "could not allocate codec context");
+        res = -1;
+        goto cleanup;
+    }
+    p->codec_ctx->sample_fmt = p->codec->sample_fmts ? p->codec->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
+    p->codec_ctx->bit_rate = p->bit_rate;
+    p->codec_ctx->sample_rate = p->sample_rate;
+    p->codec_ctx->time_base = (AVRational ) { 1, p->sample_rate };
+    if (p->codec->supported_samplerates) {
+        p->codec_ctx->sample_rate = p->codec->supported_samplerates[0];
+        for (i = 0; p->codec->supported_samplerates[i]; i++) {
+            if (p->codec->supported_samplerates[i] == p->sample_rate)
+                p->codec_ctx->sample_rate = p->sample_rate;
+        }
+    }
+    p->codec_ctx->channels = av_get_channel_layout_nb_channels(p->codec_ctx->channel_layout);
+    p->codec_ctx->channel_layout = p->channel_layout;
+    if (p->codec->channel_layouts) {
+        p->codec_ctx->channel_layout = p->codec->channel_layouts[0];
+        for (i = 0; p->codec->channel_layouts[i]; i++) {
+            if (p->codec->channel_layouts[i] == p->channel_layout)
+                p->codec_ctx->channel_layout = p->channel_layout;
+        }
+    }
+    p->codec_ctx->channels = av_get_channel_layout_nb_channels(p->codec_ctx->channel_layout);
+    res = avcodec_open2(p->codec_ctx, p->codec, NULL);
+    if (res < 0) {
+        MARM_ERROR(ctx, "could not open audio codec: %s", av_err2str(res));
+        res = -1;
+        goto cleanup;
+    }
+    p->codec_ctx->initial_padding = 0;
+
+cleanup:
+    if (res < 0) {
+        marm_gen_a_close(p);
+    }
+
+    return res;
+}
+
+void marm_gen_a_close(marm_gen_a_t *p) {
+    if (p->codec_ctx) {
+       avcodec_free_context(&p->codec_ctx);
+    }
+}
+
+marm_result_t marm_gen_a_header(marm_ctx_t *ctx, void *file, marm_gen_a_t *p) {
     const char *type = "audio";
     uint8_t type_len = strlen("audio");
-    uint8_t encoder_name_len = strlen(a->encoder_name);
-    marm_ctx_t *ctx = a->ctx;
+    uint8_t encoder_name_len = strlen(p->encoder_name);
 
-    if(ctx->write(ctx, a->file, &type_len, sizeof(type_len)) != sizeof(type_len) ||
-       ctx->write(ctx, a->file, type, type_len) != type_len ||
-       ctx->write(ctx, a->file, &encoder_name_len, sizeof(encoder_name_len)) != sizeof(encoder_name_len) ||
-       ctx->write(ctx, a->file, a->encoder_name, encoder_name_len) != encoder_name_len ||
-       ctx->write(ctx, a->file, &a->bit_rate, sizeof(a->bit_rate)) != sizeof(a->bit_rate) ||
-       ctx->write(ctx, a->file, &a->sample_rate, sizeof(a->sample_rate)) != sizeof(a->sample_rate))  {
+    if(ctx->write(ctx, file, &type_len, sizeof(type_len)) != sizeof(type_len) ||
+       ctx->write(ctx, file, type, type_len) != type_len ||
+       ctx->write(ctx, file, &encoder_name_len, sizeof(encoder_name_len)) != sizeof(encoder_name_len) ||
+       ctx->write(ctx, file, p->encoder_name, encoder_name_len) != encoder_name_len ||
+       ctx->write(ctx, file, &p->bit_rate, sizeof(p->bit_rate)) != sizeof(p->bit_rate) ||
+       ctx->write(ctx, file, &p->sample_rate, sizeof(p->sample_rate)) != sizeof(p->sample_rate) ||
+       ctx->write(ctx, file, &p->channel_layout, sizeof(p->channel_layout)) != sizeof(p->channel_layout)) {
         return MARM_RESULT_WRITE_FAILED;
     }
     return MARM_RESULT_OK;
 }
 
-marm_result_t marm_gen_a(marm_gen_a_t *a, int64_t dur, int data_only) {
+marm_result_t marm_gen_a(
+        marm_ctx_t *ctx,
+        void *file,
+        int *nb_samples,
+        int *nb_frames,
+        marm_gen_a_t* p,
+        const char *type,
+        int64_t dur,
+        int samples,
+        int64_t offset_ts,
+        int data_only) {
     int res = 0;
     int got_packet = 0;
     int dst_nb_samples;
     int samples_count = 0;
-    AVCodecContext *codec_ctx = a->codec_ctx;
-    marm_ctx_t *ctx = a->ctx;
+    AVCodecContext *codec_ctx = p->codec_ctx;
+    a_state_t s = {0};
+    int64_t f = 0;
+    AVRational time_base = p->time_base;
+    AVPacket pkt = {0};
 
-    // fill and encode
+    // state
+    if (strcmp(type, "zero") == 0) {
+        s.fill_frame = zero_audio_frame;
+    }
+    else if (strcmp(type, "sin") == 0) {
+        s.fill_frame = sin_audio_frame;
+    } else {
+        MARM_ERROR(ctx, "invalid type \"%s\"", type);
+        goto cleanup;
+    }
+    res = a_state_open(ctx, &s, p);
+    if (res != 0) {
+        goto cleanup;
+    }
+
+    // generate
     while (!ctx->abort(ctx)) {
         // done?
-        if (av_compare_ts(a->pts, codec_ctx->time_base, dur, (AVRational ) { 1, 1 }) >= 0) {
+        if (dur > 0 && av_compare_ts(s.pts, codec_ctx->time_base, dur, (AVRational ) { 1, 1 }) >= 0) {
+            break;
+        }
+        if (samples == 0) {
             break;
         }
 
         // fill source frame
-        fill_audio_frame(a);
-        a->pts += a->src_frame->nb_samples;
+        if (samples > 0) {
+            if (samples < s.src_frame->nb_samples)
+                s.src_frame->nb_samples = samples;
+            samples -= s.src_frame->nb_samples;
+        }
+        s.fill_frame(&s, p);
+        s.pts += s.src_frame->nb_samples;
 
         // resample frame
         dst_nb_samples = av_rescale_rnd(
-                swr_get_delay(
-                    a->swr_ctx,
-                    codec_ctx->sample_rate) + a->src_frame->nb_samples, codec_ctx->sample_rate,
-                    codec_ctx->sample_rate, AV_ROUND_UP
-            );
-        av_assert0(dst_nb_samples == a->src_frame->nb_samples);
-        res = av_frame_make_writable(a->res_frame);
+            swr_get_delay(s.swr_ctx, codec_ctx->sample_rate) + s.src_frame->nb_samples,
+            codec_ctx->sample_rate,
+            codec_ctx->sample_rate,
+            AV_ROUND_UP
+        );
+        av_assert0(dst_nb_samples == s.src_frame->nb_samples);
+        res = av_frame_make_writable(s.res_frame);
         if (res < 0) {
             MARM_ERROR(ctx, "could not make frame writeable: %s", av_err2str(res));
             res = -1;
             goto cleanup;
         }
         res = swr_convert(
-                a->swr_ctx,
-                a->res_frame->data, dst_nb_samples,
-                (const uint8_t **) a->src_frame->data, a->src_frame->nb_samples
-            );
+            s.swr_ctx,
+            s.res_frame->data, dst_nb_samples,
+            (const uint8_t **) s.src_frame->data, s.src_frame->nb_samples
+        );
         if (res < 0) {
             res = -1;
             goto cleanup;
         }
-        a->res_frame->pts = av_rescale_q(
-                samples_count,
-                (AVRational ) { 1, codec_ctx->sample_rate },
-                codec_ctx->time_base
-            );
+        s.res_frame->pts = av_rescale_q(
+            samples_count,
+            (AVRational ) { 1, codec_ctx->sample_rate },
+            codec_ctx->time_base
+        );
         samples_count += dst_nb_samples;
 
         // encode frame to packet
-        AVPacket pkt = { 0 };
-        av_init_packet(&pkt);
-        res = avcodec_encode_audio2(codec_ctx, &pkt, a->res_frame, &got_packet);
+        res = avcodec_encode_audio2(codec_ctx, &pkt, s.res_frame, &got_packet);
         if (res < 0) {
             res = -1;
             goto cleanup;
@@ -433,21 +502,33 @@ marm_result_t marm_gen_a(marm_gen_a_t *a, int64_t dur, int data_only) {
         if (!got_packet) {
             continue;
         }
-        MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, &pkt, &codec_ctx->time_base)
+        if (pkt.pts != AV_NOPTS_VALUE)
+            pkt.pts += offset_ts;
+        if (pkt.dts != AV_NOPTS_VALUE)
+            pkt.dts += offset_ts;
+        if (time_base.den != 0) {
+            av_packet_rescale_ts(&pkt, codec_ctx->time_base, time_base);
+            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "audio ", &pkt, &time_base)
+        } else {
+            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "audio ", &pkt, &codec_ctx->time_base)
+        }
+        f += 1;
 
         // write packet
         if (!data_only) {
-            if (ctx->write(ctx, a->file, &pkt.pts, sizeof(pkt.pts)) != sizeof(pkt.pts) ||
-                ctx->write(ctx, a->file, &pkt.flags, sizeof(pkt.flags)) != sizeof(pkt.flags) ||
-                ctx->write(ctx, a->file, &pkt.size, sizeof(pkt.size)) != sizeof(pkt.size)) {
+            if (ctx->write(ctx, file, &pkt.pts, sizeof(pkt.pts)) != sizeof(pkt.pts) ||
+                ctx->write(ctx, file, &pkt.flags, sizeof(pkt.flags)) != sizeof(pkt.flags) ||
+                ctx->write(ctx, file, &pkt.size, sizeof(pkt.size)) != sizeof(pkt.size)) {
                 res = MARM_RESULT_WRITE_FAILED;
                 goto cleanup;
             }
         }
-        if (ctx->write(ctx, a->file, pkt.data, pkt.size) != pkt.size) {
+        if (ctx->write(ctx, file, pkt.data, pkt.size) != pkt.size) {
             res = MARM_RESULT_WRITE_FAILED;
             goto cleanup;
         }
+        av_free_packet(&pkt);
+        av_init_packet(&pkt);
     }
     if (ctx->abort(ctx)) {
         MARM_INFO(ctx, "aborted gen_a");
@@ -455,7 +536,55 @@ marm_result_t marm_gen_a(marm_gen_a_t *a, int64_t dur, int data_only) {
         goto cleanup;
     }
 
+    // flush
+    while (1) {
+        // encode queued frame(s) to packet(s)
+        res = avcodec_encode_audio2(codec_ctx, &pkt, NULL, &got_packet);
+        if (res < 0) {
+            res = -1;
+            goto cleanup;
+        }
+        if (!got_packet) {
+            break;
+        }
+        if (pkt.pts != AV_NOPTS_VALUE)
+            pkt.pts += offset_ts;
+        if (pkt.dts != AV_NOPTS_VALUE)
+            pkt.dts += offset_ts;
+        if (time_base.den != 0) {
+            av_packet_rescale_ts(&pkt, codec_ctx->time_base, time_base);
+            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "audio ", &pkt, &time_base)
+        } else {
+            MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "audio ", &pkt, &codec_ctx->time_base)
+        }
+        f += 1;
+
+        // write packet
+        if (!data_only) {
+            if (ctx->write(ctx, file, &pkt.pts, sizeof(pkt.pts)) != sizeof(pkt.pts) ||
+                ctx->write(ctx, file, &pkt.flags, sizeof(pkt.flags)) != sizeof(pkt.flags) ||
+                ctx->write(ctx, file, &pkt.size, sizeof(pkt.size)) != sizeof(pkt.size)) {
+                res = MARM_RESULT_WRITE_FAILED;
+                goto cleanup;
+            }
+        }
+        if (ctx->write(ctx, file, pkt.data, pkt.size) != pkt.size) {
+            res = MARM_RESULT_WRITE_FAILED;
+            goto cleanup;
+        }
+        av_free_packet(&pkt);
+        av_init_packet(&pkt);
+    }
+
 cleanup:
+    av_free_packet(&pkt);
+
+    a_state_close(ctx, &s);
+
+    if (nb_samples)
+        *nb_samples = samples_count;
+    if (nb_frames)
+        *nb_frames = f;
 
     return res;
 }

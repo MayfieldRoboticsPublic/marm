@@ -34,7 +34,7 @@ which you can do e.g. like:
     a_frames = marm.Frames(a_pkts)
     
     with open('path/to/muxed.mkv', 'wb') as mkv_fo:
-        marm.mux_frames(
+        marm.frame.mux(
             mkv_fo,
             audio_profile={
                 'encoder_name': 'libopus',
@@ -61,17 +61,12 @@ __version__ = '0.0.0'
 __all__ = [
     'Frame',
     'Frames',
+    'AudioFrame',
     'VideoFrame',
     'VideoFrames',
-    'Codec',
-    'codecs',
-    'Format',
-    'formats',
-    'gen_audio_frames',
-    'gen_video_frames',
-    'mux_frames',
-    'stat_format',
-    'raw',
+    'FrameProxy',
+    'FrameFilter',
+    'frame',
     'rtp',
     'opus',
     'mjr',
@@ -84,17 +79,13 @@ __all__ = [
 from .frame import (
     Frame,
     Frames,
+    AudioFrame,
     VideoFrame,
     VideoFrames,
-    Codec,
-    codecs,
-    Format,
-    formats,
-    gen_audio_frames,
-    gen_video_frames,
-    mux_frames,
-    stat_format)
-from . import raw
+    FrameProxy,
+    FrameFilter,
+)
+from . import frame
 
 # packets
 from . import rtp

@@ -8,7 +8,7 @@ import marm
         ('sonic-v.mjr', 100, 1653789901, marm.vp8.VP8RTPPacket, 31),
         ('streets-of-rage.pcap', 100, 3830765780, marm.vp8.VP8RTPPacket, 21),
     ])
-def test_estimate_video_frame_rate(
+def test_rtp_estimate_video_frame_rate(
         fixtures,
         stored,
         pt,
@@ -33,7 +33,7 @@ def test_estimate_video_frame_rate(
         ('streets-of-rage.pcap', 100, 3830765780, marm.vp8.VP8RTPPacket, 960,
          720),
     ])
-def test_video_dimensions(
+def test_rtp_video_dimensions(
         fixtures,
         stored,
         pt,
@@ -85,7 +85,7 @@ def test_video_dimensions(
          'sonic-a.mjr', 5996,
          10.0, 12),
     ])
-def test_cursor(
+def test_rtp_cursor(
         tmpdir, fixtures,
         v_store, v_count, v_p_kf, v_n_kf,
         a_store, a_count,
@@ -175,3 +175,17 @@ def test_cursor(
             a_cur.seek((i, 0))
             a_cur.fastforward(v_delta)
             assert a_cur.tell() == a_tell
+
+
+@pytest.mark.parametrize(
+    ('store,samples'), [
+        ('sonic-a.mjr', 5756160),
+        ('streets-of-rage.pcap', 706920),
+    ],
+)
+def test_rtp_audio_samples(fixtures, tmpdir, store, samples):
+    p = fixtures.join(store)
+    pkts = marm.rtp.RTPPacketReader.open(
+        p.strpath, packet_type=marm.opus.OpusRTPPacket,
+    )
+    assert sum(pkt.data.nb_samples for pkt in pkts) == samples

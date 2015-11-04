@@ -22,7 +22,7 @@ def test_gen_video_frames(
         ):
     path = tmpdir.join('v.{0}'.format(encoder_name))
     with path.open('wb') as fo:
-        marm.gen_video_frames(
+        marm.frame.gen_video(
                 fo,
                 duration=duration,
                 width=width,
@@ -30,8 +30,8 @@ def test_gen_video_frames(
                 frame_rate=frame_rate
             )
     with path.open('rb') as fo:
-        header = marm.raw.read_header(fo)
-        assert header == marm.raw.VideoHeader(
+        header = marm.frame.read_header(fo)
+        assert header == marm.frame.VideoHeader(
             encoder_name=encoder_name,
             pix_fmt=0,
             width=width,
@@ -40,7 +40,7 @@ def test_gen_video_frames(
             frame_rate=frame_rate,
         )
         c = 0
-        for _ in marm.raw.read_frames(fo):
+        for _ in marm.frame.read_frames(fo):
             c += 1
         assert c == frame_count
 
@@ -56,10 +56,10 @@ def test_gen_video_frames_write_error(tmpdir):
     with mock.patch.object(io, 'write') as p:
         p.side_effect = MyException('bam')
         with pytest.raises(MyException) as ei:
-            marm.gen_video_frames(
+            marm.frame.gen_video(
                 io,
                 duration=duration,
-                encoder=encoder,
+                encoder_name=encoder,
                 pix_fmt=0,
                 width=width,
                 height=height,
@@ -70,36 +70,38 @@ def test_gen_video_frames_write_error(tmpdir):
 
 
 @pytest.mark.parametrize(
-    'encoder_name,duration,bit_rate,sample_rate,frame_count', [
-        ('flac', 11, 96000, 48000, 115),
-        ('flac', 5, 128000, 44100, 48),
+    'encoder_name,duration,bit_rate,sample_rate,channel_layout,frame_count', [
+        ('flac', 11, 96000, 48000, marm.AudioFrame.CHANNEL_LAYOUT_STEREO, 115),
+        ('flac', 5, 128000, 44100, marm.AudioFrame.CHANNEL_LAYOUT_MONO, 48),
     ])
 def test_gen_audio_frames(
-            tmpdir,
-            encoder_name,
-            duration,
-            bit_rate,
-            sample_rate,
-            frame_count,
-        ):
+        tmpdir,
+        encoder_name,
+        duration,
+        bit_rate,
+        sample_rate,
+        channel_layout,
+        frame_count):
     path = tmpdir.join('a.{0}'.format(encoder_name))
     with path.open('wb') as fo:
-        marm.gen_audio_frames(
-                fo,
-                duration=duration,
-                bit_rate=bit_rate,
-                sample_rate=sample_rate,
-            )
+        marm.frame.gen_audio(
+            fo,
+            duration=duration,
+            bit_rate=bit_rate,
+            sample_rate=sample_rate,
+            channel_layout=channel_layout
+        )
 
     with path.open('rb') as fo:
-        header = marm.raw.read_header(fo)
-        assert header == marm.raw.AudioHeader(
+        header = marm.frame.read_header(fo)
+        assert header == marm.frame.AudioHeader(
             encoder_name=encoder_name,
             bit_rate=bit_rate,
             sample_rate=sample_rate,
+            channel_layout=channel_layout,
         )
         c = 0
-        for _ in marm.raw.read_frames(fo):
+        for _ in marm.frame.read_frames(fo):
             c += 1
         assert c == frame_count
 
@@ -115,9 +117,9 @@ def test_gen_audio_frames_write_error(tmpdir):
     with mock.patch.object(io, 'write') as p:
         p.side_effect = MyException('boom')
         with pytest.raises(MyException) as ei:
-            marm.gen_audio_frames(
+            marm.frame.gen_audio(
                 io,
-                encoder=encoder,
+                encoder_name=encoder,
                 duration=duration,
                 bit_rate=bit_rate,
                 sample_rate=sample_rate,

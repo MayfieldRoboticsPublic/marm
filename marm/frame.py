@@ -1,5 +1,6 @@
 from __future__ import division
 
+import abc
 import collections
 import logging
 import os
@@ -23,6 +24,9 @@ class Frame(object):
     corresponding to `libavcodec.AVPacket`.
     """
 
+    FLAG_KEY_FRAME = 1 << 0  # AV_PKT_FLAG_KEY
+    FLAG_CORRUPT = 1 << 1  # AV_PKT_FLAG_CORRUPT
+
     def __init__(self, *args, **kwargs):
         if args:
             if kwargs:
@@ -40,6 +44,14 @@ class Frame(object):
                         raise TypeError('Unexpected keyword argument \'{0}\''.format(k))
                     setattr(self, k, v)
 
+    @property
+    def is_key_frame(self):
+        return self.flags & self.FLAG_KEY_FRAME != 0
+
+    @property
+    def is_corrupt(self):
+        return self.flags & self.FLAG_CORRUPT != 0
+
     def unpack(self, buf):
         fo = StringIO.StringIO(buf) if isinstance(buf, basestring) else buf
         fmt = '=qii'
@@ -55,7 +67,7 @@ class Frame(object):
 
     def pack(self, fo=None):
         fo, value = StringIO.StringIO(), True if fo is None else fo, False
-        fo.write(struct.pack('=qii', self.pts, self.flags, len(self.data)))
+        fo.write(struct.pack('=qqii', self.pts, self.flags, len(self.data)))
         fo.write(self.data)
         if value:
             return fo.getvalue()
@@ -63,12 +75,15 @@ class Frame(object):
 
 class Frames(collections.Iterator):
     """
-    Depacketizes of `Frame`s assumes one packet/frame.
+    Depacketizes `Frame`s assuming each packet is a frame.
     """
 
-    def __init__(self, packets, pts_offset=0):
+    def __init__(self, packets, pts_offset=0, pts='msecs', flags=0, frame_type=Frame):
         self.packets = iter(packets)
+        self.pts = pts
         self.pts_offset = pts_offset
+        self.flags = flags
+        self.frame_type = frame_type
 
     # collections.Iterator
 
@@ -77,46 +92,49 @@ class Frames(collections.Iterator):
 
     def next(self):
         packet = self.packets.next()
-        return Frame(
-            pts=int(packet.msecs + self.pts_offset),
-            flags=0,
-            data=packet.data,
+        pts = int(getattr(packet, self.pts) + self.pts_offset)
+        return self.frame_type(
+            pts=pts,
+            flags=self.flags,
+            data=packet.data.data
         )
-
 
 class VideoFrame(Frame):
     """
     Convenience specialization of `Frame` for video.
     """
 
-    FLAG_KEY_FRAME = 1 << 0  # AV_PKT_FLAG_KEY
-    FLAG_CORRUPT = 1 << 1  # AV_PKT_FLAG_CORRUPT
-
     PIX_FMT_NONE = -1  # AV_PIX_FMT_NONE
     PIX_FMT_YUV420P = 0  # AV_PIX_FMT_YUV420P
     PIX_FMT_YUYV422 = 1  # AV_PIX_FMT_YUYV422
     PIX_FMT_RGB24 = 2  # AV_PIX_FMT_RGB24
 
-    @property
-    def is_key_frame(self):
-        return self.flags & self.FLAG_KEY_FRAME != 0
 
-    @property
-    def is_corrupt(self):
-        return self.flags & self.FLAG_CORRUPT != 0
+class AudioFrame(Frame):
+    """
+    Convenience specialization of `Frame` for audio.
+    """
+
+    CHANNEL_LAYOUT_MONO = ext.AV_CH_LAYOUT_MONO
+    CHANNEL_LAYOUT_STEREO = ext.AV_CH_LAYOUT_STEREO
+
+    def __init__(self, *args, **kwargs):
+        kwargs['flags'] = kwargs.pop('flags', 0) | Frame.FLAG_KEY_FRAME
+        super(AudioFrame, self).__init__(*args, **kwargs)
 
 
 class VideoFrames(collections.Iterator):
     """
     Depacketizes `VideoFrame`s. There may be more than one packet/frame and to
-    group them inot a single `VideoFrame` the packet data should support:
+    group them into a single `VideoFrame` the packet data should support:
     
     - `RTPVideoPayloadMixin`.
     
     """
 
-    def __init__(self, packets, pts_offset=0):
+    def __init__(self, packets, pts_offset=0, pts='msecs'):
         self.packets = iter(packets)
+        self.pts = pts
         try:
             self.packet = self.packets.next()
         except StopIteration:
@@ -167,7 +185,7 @@ class VideoFrames(collections.Iterator):
         first = self.packet
 
         # meta
-        pts, flags = int(first.msecs) + self.pts_offset, 0
+        pts, flags = int(getattr(first, self.pts) + self.pts_offset), 0
         if first.data.header.is_key_frame:
             flags |= VideoFrame.FLAG_KEY_FRAME
 
@@ -216,28 +234,29 @@ Codec = ext.Codec
 codecs = ext.codecs
 
 
-def gen_audio_frames(fo, encoder=None, **kwargs):
+def gen_audio(fo=None, encoder_name=None, **kwargs):
     """
     Generates encoded audio frames which is useful for testing.
     """
-    if encoder is None:
-        _, extension = os.path.splitext(fo.name)
-        if not extension:
-            raise ValueError('fo.name "{0}" has no extension.'.format(fo.name))
-        encoder = extension[1:]
-    ext.generate_audio(fo, encoder, **kwargs)
+    encoder_name = encoder_name or format_ext(fo, 'fo')[1:]
+    if fo is None:
+        fo = StringIO.StringIO()
+        ext.generate_audio(
+            fo,
+            encoder_name,
+            header=False,
+            **kwargs)
+        fo.seek(0)
+        return read_frames(fo)
+    return ext.generate_audio(fo, encoder_name, **kwargs)
 
 
-def gen_video_frames(fo, encoder=None, **kwargs):
+def gen_video(fo, encoder_name=None, **kwargs):
     """
     Generates encoded video frames which is useful for testing.
     """
-    if encoder is None:
-        _, extension = os.path.splitext(fo.name)
-        if not extension:
-            raise ValueError('fo.name "{0}" has no extension.'.format(fo.name))
-        encoder = extension[1:]
-    ext.generate_video(fo, encoder, **kwargs)
+    encoder_name = encoder_name or format_ext(fo, 'fo')[1:]
+    return ext.generate_video(fo, encoder_name, **kwargs)
 
 
 # libav* format.
@@ -248,7 +267,7 @@ Format = ext.Format
 formats = ext.output_formats
 
 
-def mux_frames(fo,
+def mux(fo,
         video_profile=None,
         video_packets=None,
         audio_profile=None,
@@ -257,26 +276,222 @@ def mux_frames(fo,
     """
     Muxes encoded video and audio frames (i.e. codec packets) into a container.
     """
-    if format_extension is None:
-        _, format_extension = os.path.splitext(fo.name)
-        if not format_extension:
-            raise ValueError('fo.name "{0}" has no extension.'.format(fo.name))
+    format_extension = format_extension or format_ext(fo, 'fo')
     ext.mux(
         fo,
         format_extension,
         v_profile=video_profile,
         v_packets=video_packets,
         a_profile=audio_profile,
-        a_packets=audio_packets
+        a_packets=audio_packets,
     )
 
 
-def stat_format(fo, format_extension=None):
+# libav* `libavcodec.AVPacket` proxy.
+FrameProxy = ext.Packet
+
+
+class FrameFilter(object):
+    
+    KEEP = ext.FILTER_KEEP
+    DROP = ext.FILTER_DROP
+    KEEP_ALL = ext.FILTER_KEEP_ALL
+    DROP_ALL = ext.FILTER_DROP_ALL
+
+    @abc.abstractmethod
+    def __call__(self, frame_proxy):
+        pass
+
+    @classmethod
+    def range(cls, *args, **kwargs):
+        return FrameRange(*args, **kwargs)
+
+
+class FrameRange(FrameFilter):
+
+    def __init__(self, stream_index, b, e=None, count=0):
+        self.stream_index = stream_index
+        self.b, self.e, self.count = b, e, count
+
+    def __call__(self, frame):
+        if frame.stream_index != self.stream_index:
+            return self.KEEP
+        idx = self.count
+        self.count += 1
+        if self.b is not None and idx < self.b:
+            return self.DROP
+        if self.e is not None and self.e < idx:
+            return self.DROP
+        return self.KEEP
+
+    def shift(self, v):
+        return type(self)(
+            self.stream_index,
+            self.b + v if self.b is not None else self.b,
+            self.e + v if self.e is not None else self.e,
+        )
+
+
+def remux(
+        out_fo,
+        in_fo,
+        filter=None,
+        out_format_extension=None,
+        in_format_extension=None,
+        **kwargs):
     """
-    Probes format information.
+    Re-muxes encoded video and audio frames (i.e. codec packets) into another
+    container.
     """
-    if format_extension is None:
-        _, format_extension = os.path.splitext(fo.name)
-        if not format_extension:
-            raise ValueError('fo.name "{0}" has no extension.'.format(fo.name))
-    return ext.stat(fo, format_extension)
+    out_format_extension = out_format_extension or format_ext(out_fo, 'out_fo', )
+    in_format_extension = in_format_extension or format_ext(in_fo, 'in_fo',)
+    ext.remux(
+        out_fo,
+        out_format_extension,
+        in_fo,
+        in_format_extension,
+        filter,
+        **kwargs
+    )
+
+
+def last_mpegts_ccs(in_fo, in_format_extension=None):
+    in_format_extension = in_format_extension or format_ext(in_fo, 'in_fo')
+    return ext.last_mpegts_ccs(in_fo, in_format_extension)
+
+
+def format_ext(fo, tag):
+    _, ext = os.path.splitext(fo.name)
+    if not ext:
+        raise ValueError('{0}.name "{1}" has no extension.'.format(tag, fo.name))
+    return ext
+
+
+class VideoHeader(collections.namedtuple('VideoHeader', [
+        'encoder_name',
+        'pix_fmt',
+        'width',
+        'height',
+        'bit_rate',
+        'frame_rate',
+    ])):
+
+    def pack(self):
+        fmt = '=B{0}sB{1}siiiii'.format(len('video'), len(self.encoder_name))
+        buf = struct.pack(fmt,
+            len('video'), b'video',
+            len(self.encoder_name), self.encoder_name.encode('ascii'),
+            self.pix_fmt,
+            self.width,
+            self.height,
+            self.bit_rate,
+            self.frame_rate,
+        )
+        return buf
+
+    @classmethod
+    def unpack(cls, fo):
+        return cls(*((read_string(fo),) + read_struct(fo, 'iiiii')))
+
+
+class AudioHeader(collections.namedtuple('AudioHeader', [
+        'encoder_name',
+        'bit_rate',
+        'sample_rate',
+        'channel_layout',
+    ])):
+
+    def pack(self):
+        fmt = '=B{0}sB{1}siiQ'.format(len('audio'), len(self.encoder_name))
+        buf = struct.pack(fmt,
+            len('audio'), 'audio',
+            len(self.encoder_name), self.encoder_name,
+            self.bit_rate,
+            self.sample_rate,
+            self.channel_layout,
+        )
+        return buf
+
+    @classmethod
+    def unpack(cls, fo):
+        return cls(*((read_string(fo),) + read_struct(fo, 'iiQ')))
+
+
+def read_header(fo):
+    t = read_string(fo)
+    if t == 'video':
+        h = VideoHeader.unpack(fo)
+    elif t == 'audio':
+        h = AudioHeader.unpack(fo)
+    else:
+        raise ValueError('Unsupported type "{0}".'.format(t))
+    return h
+
+
+def read_string(fo, length=None):
+    if length is None:
+        b = fo.read(1)
+        if len(b) != 1:
+            raise ValueError('Failed to read string length at {0}.'.format(fo.tell()))
+        l, = struct.unpack('=B', b)
+        return read_string(fo, l)
+    b = fo.read(length)
+    if len(b) != length:
+        raise ValueError('Failed to read {0} length string at {1}.'.format(length, fo.tell()))
+    return b
+
+
+def read_struct(fo, fmt):
+    size = struct.calcsize(fmt)
+    b = fo.read(size)
+    if len(b) != size:
+        raise ValueError('Failed to read {0} bytes for "{1}" at {2}.'.format(size, fmt, fo.tell()))
+    return struct.unpack(fmt, b)
+
+
+def read_frames(fo, frame_type=Frame):
+    try:
+        while True:
+            frame = frame_type(fo)
+            yield frame
+    except ValueError, ex:
+        if not is_eof(ex):
+                raise
+            # eof
+
+
+def is_eof(ex):
+    return (
+        'Failed to read' in ex.message or
+        'Failed to seek' not in ex.message
+    )
+
+
+def write_string(fo, buf):
+    fo.write(struct.pack('=B{0}s'.format(len(buf)), len(buf), buf))
+
+
+def write_header(fo, header):
+    if isinstance(header, VideoHeader):
+        write_string(fo, 'video')
+        fo.write(header.pack())
+    elif isinstance(header, AudioHeader):
+        write_string(fo, 'audio')
+        fo.write(header.pack())
+    else:
+        raise TypeError(
+            'Invalid header type {0}'.format(type(header).__name__)
+        )
+
+
+def monotonic(frames):
+    pts = None
+    delta = 1
+    for frame in frames:
+        if pts is not None:
+            if frame.pts <= pts:
+                frame.pts = pts + delta
+            else:
+                delta = frame.pts - pts
+        pts = frame.pts
+        yield frame

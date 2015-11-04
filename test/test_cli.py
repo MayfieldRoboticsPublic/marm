@@ -83,7 +83,7 @@ def test_cli_mux(
     args += v_splits
     parsed = marm.cli.arg_parser.parse_args(map(str, args))
     parsed.cmd(parsed)
-    marm.stat_format(dst.open('rb'))
+    marm.FFProbe([dst.strpath])()
 
     # mux v,a
     args = ['mux', '-f', '-ld', dst, ','.join([v_type, a_type])]
@@ -91,4 +91,4 @@ def test_cli_mux(
     args.extend(sorted(tmpdir.visit('a-*.{0}'.format('mjr'))))
     parsed = marm.cli.arg_parser.parse_args(map(str, args))
     parsed.cmd(parsed)
-    marm.stat_format(dst.open('rb'))
+    marm.FFProbe([dst.strpath])()

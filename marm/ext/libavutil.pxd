@@ -101,3 +101,7 @@ cdef extern from 'libavutil/avutil.h':
     void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl, char *line, int line_size, int *print_prefix)
 
     void av_log_set_callback(void (*callback)(void *avcl, int level, const char *fmt, va_list vl) except *)
+    
+    int av_dict_set(AVDictionary **pm, const char *key, const char *value, int flags)
+    
+    void av_dict_free(AVDictionary **m)

@@ -8,56 +8,61 @@ import marm
 @pytest.mark.parametrize(
     ('duration,'
      'v_encoder,v_width,v_height,v_frame_rate,'
-     'a_encoder,a_bit_rate,a_sample_rate,'
-     'fmt'), [
-        (5, 'mpeg4', 320, 240, 25, 'flac', 96000, 48000, 'mkv'),
+     'a_encoder,a_bit_rate,a_sample_rate,a_channel_layout,'
+     'fmt,fmt_name'), [
+        (5,
+         'mpeg4', 320, 240, 25,
+         'flac', 96000, 48000, marm.frame.AudioFrame.CHANNEL_LAYOUT_STEREO,
+         'mkv', 'matroska'),
     ]
 )
 def test_mux_gen(
         tmpdir,
         duration,
         v_encoder, v_width, v_height, v_frame_rate,
-        a_encoder, a_bit_rate, a_sample_rate,
-        fmt):
+        a_encoder, a_bit_rate, a_sample_rate, a_channel_layout,
+        fmt, fmt_name):
     v_path = tmpdir.join('v.{0}'.format(v_encoder))
     a_path = tmpdir.join('a.{0}'.format(a_encoder))
     m_path = tmpdir.join('m.{0}'.format(fmt))
 
     with v_path.open('wb') as fo:
-        marm.gen_video_frames(
-                fo,
-                duration=duration,
-                width=v_width,
-                height=v_height,
-                frame_rate=v_frame_rate
-            )
+        marm.frame.gen_video(
+            fo,
+            duration=duration,
+            width=v_width,
+            height=v_height,
+            frame_rate=v_frame_rate
+        )
 
     with a_path.open('wb') as fo:
-        marm.gen_audio_frames(
-                fo,
-                duration=duration,
-                bit_rate=a_bit_rate,
-                sample_rate=a_sample_rate,
-            )
+        marm.frame.gen_audio(
+            fo,
+            duration=duration,
+            bit_rate=a_bit_rate,
+            sample_rate=a_sample_rate,
+            channel_layout=a_channel_layout,
+        )
 
     with m_path.open('wb') as fo, \
             v_path.open('rb') as v_fo, \
             a_path.open('rb') as a_fo:
         # a
-        a_hdr = marm.raw.read_header(a_fo)
-        a_frames = marm.raw.read_frames(a_fo)
+        a_hdr = marm.frame.read_header(a_fo)
+        a_frames = marm.frame.read_frames(a_fo)
 
         # v
-        v_hdr = marm.raw.read_header(v_fo)
-        v_frames = marm.raw.read_frames(v_fo)
+        v_hdr = marm.frame.read_header(v_fo)
+        v_frames = marm.frame.read_frames(v_fo)
 
         # mux them
-        marm.mux_frames(
+        marm.frame.mux(
             fo,
             audio_profile={
                 'encoder_name': a_hdr.encoder_name,
                 'bit_rate': a_hdr.bit_rate,
                 'sample_rate': a_hdr.sample_rate,
+                'channel_layout': a_hdr.channel_layout,
             },
             audio_packets=a_frames,
             video_profile={
@@ -71,10 +76,14 @@ def test_mux_gen(
             video_packets=v_frames,
         )
 
-    with m_path.open('rb') as fo:
-        m_stat = marm.stat_format(fo)
-    assert m_stat.nb_streams == 2
-    assert fmt in m_stat.iformat.extensions.split(',')
+    probe = marm.FFProbe([
+        '-show_format',
+        '-show_streams',
+        m_path.strpath,
+    ])
+    probe()
+    assert len(probe.result['streams']) == 2
+    assert fmt_name in probe.result['format']['format_name'].split(',')
 
 
 def check_output(cmd):
@@ -144,9 +153,9 @@ def test_concat_muxed(
         packet_type=marm.opus.OpusRTPPacket,
     )
 
-    # probe for profile
-    v_width, v_height = marm.rtp.probe_video_dimensions(v_cur)
-    v_frame_rate = marm.rtp.estimate_video_frame_rate(v_cur, window=10)
+    # probe
+    v_prof = pytest.probe_video(v_cur)
+    a_prof = pytest.probe_audio(a_cur)
 
     # calculate mux points
     mux_points = []
@@ -206,22 +215,23 @@ def test_concat_muxed(
         # mux
         p_path = tmpdir.join('mux-{0}.{1}'.format(i + 1, fmt))
         with p_path.open('wb') as fo:
-            marm.mux_frames(
+            marm.frame.mux(
                 fo,
                 video_profile={
                     'encoder_name': v_enc,
                     'pix_fmt': marm.VideoFrame.PIX_FMT_YUV420P,
-                    'width': v_width,
-                    'height': v_height,
-                    'frame_rate': v_frame_rate,
-                    'bit_rate': 4000000,
+                    'width': v_prof['width'],
+                    'height': v_prof['height'],
+                    'frame_rate': v_prof['frame_rate'],
+                    'bit_rate': v_prof['bit_rate'],
                     'time_base': (1, 1000),
                 },
                 video_packets=marm.VideoFrames(v_pkts),
                 audio_profile={
                     'encoder_name': a_enc,
-                    'bit_rate': 96000,
-                    'sample_rate': 48000,
+                    'bit_rate': a_prof['bit_rate'],
+                    'sample_rate': a_prof['sample_rate'],
+                    'channel_layout': a_prof['channel_layout'],
                     'time_base': (1, 1000),
                 },
                 audio_packets=marm.Frames(a_pkts, a_b_delay),
@@ -285,16 +295,14 @@ def test_mux_next_packet_error(
     v_pkts = marm.rtp.RTPPacketReader.open(
         str(v_src), packet_type=v_pt
     )
-    v_width, v_height = marm.rtp.probe_video_dimensions(v_pkts)
-    v_pkts.reset()
-    v_frame_rate = marm.rtp.estimate_video_frame_rate(v_pkts)
-    v_pkts.reset()
+    v_prof = pytest.probe_video(v_pkts)
 
     # a
     a_src = fixtures.join(a_store)
     a_pkts = marm.rtp.RTPPacketReader.open(
         str(a_src), packet_type=a_pt
     )
+    a_prof = pytest.probe_audio(a_pkts)
 
     # mux
 
@@ -314,22 +322,23 @@ def test_mux_next_packet_error(
     m_path = tmpdir.join('mux.{0}'.format(fmt))
     with pytest.raises(MyException) as ei:
         with m_path.open('wb') as fo:
-            marm.mux_frames(
+            marm.frame.mux(
                 fo,
                 video_profile={
                     'encoder_name': v_enc,
                     'pix_fmt': marm.VideoFrame.PIX_FMT_YUV420P,
-                    'width': v_width,
-                    'height': v_height,
-                    'frame_rate': v_frame_rate,
-                    'bit_rate': 4000000,
+                    'width': v_prof['width'],
+                    'height': v_prof['height'],
+                    'frame_rate': v_prof['frame_rate'],
+                    'bit_rate': v_prof['bit_rate'],
                     'time_base': (1, 1000),
                 },
                 video_packets=marm.VideoFrames(v_pkts_wrapper()),
                 audio_profile={
                     'encoder_name': a_enc,
-                    'bit_rate': 96000,
-                    'sample_rate': 48000,
+                    'bit_rate': a_prof['bit_rate'],
+                    'sample_rate': a_prof['sample_rate'],
+                    'channel_layout': a_prof['channel_layout'],
                     'time_base': (1, 1000),
                 },
                 audio_packets=marm.Frames(a_pkts)

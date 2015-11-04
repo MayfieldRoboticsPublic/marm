@@ -33,7 +33,12 @@ scripts = [
 ext_modules = [
     setuptools.Extension(
         'marm.ext',
-        ['marm/ext/gen.c', 'marm/ext/mux.c', 'marm/ext/stat.c', 'marm/ext/ext.pyx'],
+        ['marm/ext/gen.c',
+         'marm/ext/mux.c',
+         'marm/ext/remux.c',
+         'marm/ext/scan.c',
+         'marm/ext/util.c',
+         'marm/ext/ext.pyx'],
         include_dirs=['marm/ext/'],
         extra_compile_args=(
             ['-g', '-O0'] +

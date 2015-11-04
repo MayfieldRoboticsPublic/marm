@@ -7,7 +7,7 @@ cimport cpython.exc
 cimport cpython.ref
 from libc.stdint cimport int64_t
 from libc.stdio cimport stderr
-from libc.string cimport memcpy
+from libc.string cimport memcpy, memset
 
 cimport libavcodec
 cimport libavformat
@@ -208,6 +208,35 @@ cdef class FormatContext(object):
             return None if self.ctx.iformat == NULL else InputFormat.create(self.ctx.iformat)
 
 
+cdef class Packet(object):
+
+    cdef libavcodec.AVPacket *pkt
+    
+    property pts:
+
+        def __get__(self):
+            return self.pkt.pts
+
+    property dts:
+
+        def __get__(self):
+            return self.pkt.dts
+        
+    property flags:
+
+        def __get__(self):
+            return self.pkt.flags
+
+    property stream_index:
+
+        def __get__(self):
+            return self.pkt.stream_index
+        
+    property duration:
+
+        def __get__(self):
+            return self.pkt.duration
+
 # libmarm platform
 
 class MARMError(Exception):
@@ -313,6 +342,14 @@ cdef int marm_next_packet_cb(libmarm.marm_ctx_t *ctx, void *packets, libavcodec.
     return 0
 
 
+cdef int marm_filter_packet_cb(libmarm.marm_ctx_t *ctx, void *filter, libavcodec.AVPacket *av_packet) except? -1:
+    cdef tuple packet_filter = <tuple>filter
+    cdef Packet packet = packet_filter[0]
+    cdef object cb = packet_filter[1]
+    packet.pkt = av_packet
+    return cb(packet)
+
+
 def marm_error(res):
     if res != libmarm.MARM_RESULT_OK:
         if cpython.exc.PyErr_Occurred() != NULL:
@@ -320,44 +357,80 @@ def marm_error(res):
         raise MARMError(res)
 
 
-# libmarm functions wrappers
+cdef marm_ctx(libmarm.marm_ctx_t *ctx):
+    ctx.log = marm_log_cb
+    ctx.next_packet = marm_next_packet_cb
+    ctx.filter_packet = marm_filter_packet_cb
+    ctx.read = marm_read_cb
+    ctx.write = marm_write_cb
+    ctx.seek = marm_seek_cb
+    ctx.abort = marm_abort_cb
+
+
+# libav* wrappers
+
+AV_CH_LAYOUT_MONO = libavcodec.AV_CH_LAYOUT_MONO
+AV_CH_LAYOUT_STEREO = libavcodec.AV_CH_LAYOUT_STEREO
+
+# libmarm wrappers
+
+FILTER_KEEP = libmarm.MARM_PACKET_FILTER_KEEP
+FILTER_DROP = libmarm.MARM_PACKET_FILTER_DROP
+FILTER_KEEP_ALL = libmarm.MARM_PACKET_FILTER_KEEP_ALL
+FILTER_DROP_ALL = libmarm.MARM_PACKET_FILTER_DROP_ALL
 
 cpdef object generate_audio(
         object file,
         const char* encoder_name,
         int header=1,
         int raw=0,
+        const char *type='sin',
         int duration=10,
+        int samples=-1,
         int bit_rate=96000,
-        int sample_rate=48000):
+        int sample_rate=48000,
+        int channel_layout=libavcodec.AV_CH_LAYOUT_STEREO,
+        object time_base=(0, 0),
+        int offset_ts=0):
     cdef int res = libmarm.MARM_RESULT_OK
     cdef libmarm.marm_ctx_t ctx
-    cdef libmarm.marm_gen_a_t a
+    cdef libmarm.marm_gen_a_t p
+    cdef int nb_samples;
+    cdef int nb_frames;
     
     try:
         # context
-        ctx.log = marm_log_cb
-        ctx.write = marm_write_cb
-        ctx.seek = marm_seek_cb
-        ctx.abort = marm_abort_cb
+        marm_ctx(&ctx)
 
-        # context
-        a.ctx = &ctx
-        a.file = <void *>file
-        a.encoder_name = encoder_name
-        a.bit_rate = bit_rate
-        a.sample_rate = sample_rate
-        res = libmarm.marm_gen_a_open(&a);
+        # profile
+        p.encoder_name = encoder_name
+        p.bit_rate = bit_rate
+        p.sample_rate = sample_rate
+        p.channel_layout = channel_layout
+        p.time_base.num, p.time_base.den = time_base
+        res = libmarm.marm_gen_a_open(&ctx, &p);
         marm_error(res)
         
         # generate
         if header and not raw:
-            res = libmarm.marm_gen_a_header(&a)
+            res = libmarm.marm_gen_a_header(&ctx, <void *>file, &p)
             marm_error(res)
-        res = libmarm.marm_gen_a(&a, duration, raw);
+        res = libmarm.marm_gen_a(
+            &ctx,
+            <void *>file,
+            &nb_samples,
+            &nb_frames,
+            &p,
+            type,
+            duration,
+            samples,
+            offset_ts,
+            raw
+        );
         marm_error(res)
     finally:
-        libmarm.marm_gen_a_close(&a)
+        libmarm.marm_gen_a_close(&p)
+    return nb_samples, nb_frames
 
 
 cpdef object generate_video(
@@ -372,15 +445,16 @@ cpdef object generate_video(
         int bit_rate=400000,
         int frame_rate=25):
     cdef int res = libmarm.MARM_RESULT_OK
+    
     cdef libmarm.marm_ctx_t ctx
+    memset(&ctx, 0, sizeof(ctx))
+    
     cdef libmarm.marm_gen_v_t v
+    memset(&v, 0, sizeof(v))
     
     try:
         # context
-        ctx.log = marm_log_cb
-        ctx.write = marm_write_cb
-        ctx.seek = marm_seek_cb
-        ctx.abort = marm_abort_cb
+        marm_ctx(&ctx)
         
         # video
         v.ctx = &ctx
@@ -418,23 +492,18 @@ cpdef object mux(
     cdef int has_a = a_packets is not None
     cdef libmarm.marm_mux_v_t v
     cdef int has_v = v_packets is not None
-    cdef libmarm.marm_mux_t m
     
     try:
         # context
-        ctx.log = marm_log_cb
-#        ctx.log = NULL
-        ctx.next_packet = marm_next_packet_cb
-        ctx.write = marm_write_cb
-        ctx.seek = marm_seek_cb
-        ctx.abort = marm_abort_cb
+        marm_ctx(&ctx)
     
         # audio
         if has_a:
             a.ctx = &ctx
             a.packets = <void *>a_packets
             a.encoder_name = a_profile['encoder_name']
-            a.bit_rate = a_profile['bit_rate']
+            a.channel_layout = a_profile['channel_layout']
+            a.bit_rate = a_profile.get('bit_rate', 0)
             a.sample_rate = a_profile['sample_rate']
             if 'time_base' in a_profile:
                 a.time_base.num = a_profile['time_base'][0]
@@ -442,6 +511,7 @@ cpdef object mux(
             else:
                 a.time_base.num = 1
                 a.time_base.den = a.sample_rate
+            a.initial_padding = a_profile.get('initial_padding', -1)
             res = libmarm.marm_mux_a_open(&a)
             marm_error(res)
         
@@ -453,7 +523,7 @@ cpdef object mux(
             v.pix_fmt = <libavutil.AVPixelFormat>v_profile['pix_fmt']
             v.width = v_profile['width']
             v.height = v_profile['height']
-            v.bit_rate = v_profile['bit_rate']
+            v.bit_rate = v_profile.get('bit_rate', 0)
             v.frame_rate = v_profile['frame_rate']
             if 'time_base' in v_profile:
                 v.time_base.num = v_profile['time_base'][0]
@@ -465,15 +535,14 @@ cpdef object mux(
             marm_error(res)
         
         # mux them
-        m.ctx = &ctx
-        m.file = <void *>file
-        m.flags = libmarm.MARM_MUX_FLAG_MONOTONIC_FILTER
-        m.format_name = format_name
-        m.format_extension = format_extension
         res = libmarm.marm_mux(
-            &m,
+            &ctx,
+            <void *>file,
+            libmarm.MARM_MUX_FLAG_MONOTONIC_FILTER,
+            format_name,
+            format_extension,
             &v if has_v else NULL,
-            &a if has_a else NULL
+            &a if has_a else NULL,
         )
         marm_error(res)
     finally:
@@ -483,34 +552,94 @@ cpdef object mux(
             libmarm.marm_mux_v_close(&v)
 
 
-cpdef object stat(object file, const char *format_name):
+cpdef object remux(
+        object out_file,
+        const char *out_format_extension,
+        object in_file,
+        const char *in_format_extension,
+        object filter=None,
+        const char *out_format_name=NULL,
+        const char *in_format_name=NULL,
+        object mpegts_ccs=None,
+        object options=None):
+
     cdef int res = libmarm.MARM_RESULT_OK
     cdef libmarm.marm_ctx_t ctx
-    cdef libmarm.marm_stat_t s
-
-    try:
-        # context
-        ctx.log = marm_log_cb
-        ctx.read = marm_read_cb
-        ctx.seek = marm_seek_cb
-        ctx.abort = marm_abort_cb
-        
-        # stat
-        s.ctx = &ctx
-        s.file = <void *>file
-        s.format_name = format_name
-        s.format_extension = NULL
-        s.format = NULL
-        
-        res = libmarm.marm_stat(&s)
-        marm_error(res)
-        s_obj = FormatContext.create(s.format)
-        s.format = NULL  # transferred to s_obj 
-    finally:
-        libmarm.marm_stat_close(&s)
+    cdef tuple packet_filter
+    cdef void *filter_p = NULL
+    cdef libmarm.marm_mpegts_cc_t mpegts_ccs_a[32]
+    cdef libmarm.marm_mpegts_cc_t *mpegts_ccs_p = NULL
+    cdef libavutil.AVDictionary *av_opts = NULL;
     
-    return s_obj
+    if options:
+        for i, (key, value) in enumerate(options):
+            libavutil.av_dict_set(&av_opts, <bytes>key, <bytes>value, 0)
+    
+    try:
+        # packet filter
+        if filter:
+            packet_filter = Packet(), filter
+            filter_p = <void *>(packet_filter)
+    
+        # mpegts continuity counters
+        if mpegts_ccs:
+            if len(mpegts_ccs) > 32:
+                raise ValueError('len(mpegts_ccs) > {0}'.format(32))
+            for i, (pid, cc) in enumerate(mpegts_ccs):
+                mpegts_ccs_a[i].pid = <int>pid
+                mpegts_ccs_a[i].cc = <int>cc
+            mpegts_ccs_p = mpegts_ccs_a
+    
+        # context
+        marm_ctx(&ctx)
+    
+        # remux it
+        res = libmarm.marm_remux(
+            &ctx,
+            <void *>out_file,
+            out_format_name,
+            out_format_extension,
+            <void *>in_file,
+            in_format_name,
+            in_format_extension,
+            filter_p,
+            mpegts_ccs_p,
+            <int>(len(mpegts_ccs) if mpegts_ccs else 0),
+            av_opts
+        )
+        marm_error(res)
+    finally:
+        if av_opts != NULL:
+            libavutil.av_dict_free(&av_opts)
 
+
+cpdef object last_mpegts_ccs(
+        object in_file,
+        const char *in_format_extension,
+        const char *in_format_name=NULL):
+
+    cdef int res = libmarm.MARM_RESULT_OK
+    cdef libmarm.marm_ctx_t ctx
+    cdef libmarm.marm_mpegts_cc_t ccs[10]
+    cdef int nb_cc = 0;
+    
+    # context
+    marm_ctx(&ctx)
+    
+    # scan it
+    res = libmarm.marm_scan(
+        &ctx,
+        <void *>in_file, in_format_name, in_format_extension,
+        ccs, &nb_cc, 10,
+    )
+    marm_error(res)
+    
+    # results
+    r = dict([
+        (ccs[i].pid, ccs[i].cc)
+        for i in range(nb_cc)
+    ])
+    return r
 
 # init
 

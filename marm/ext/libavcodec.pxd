@@ -1,4 +1,4 @@
-from libc.stdint cimport uint8_t, int64_t
+from libc.stdint cimport uint8_t, int64_t, uint64_t
 
 from libavutil cimport AVFrame, AVRational, AVDictionary, AVMediaType
 
@@ -22,6 +22,7 @@ cdef extern from 'libavcodec/avcodec.h':
         int size
         int stream_index
         int flags
+        int duration
 
     AVCodec *avcodec_find_encoder_by_name(const char *name)
 
@@ -46,5 +47,8 @@ cdef extern from 'libavcodec/avcodec.h':
     int avcodec_encode_audio2(AVCodecContext *avctx, AVPacket *avpkt, const AVFrame *frame, int *got_packet_ptr)
 
     int avcodec_encode_video2(AVCodecContext *avctx, AVPacket *avpkt, const AVFrame *frame, int *got_packet_ptr)
-    
+
     AVCodec *av_codec_next(const AVCodec *c)
+
+    uint64_t AV_CH_LAYOUT_MONO
+    uint64_t AV_CH_LAYOUT_STEREO
