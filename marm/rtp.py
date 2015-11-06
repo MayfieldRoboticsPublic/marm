@@ -598,7 +598,14 @@ class RTPCursor(collections.Iterable):
         _, pkt = self._prev()
         return pkt
 
-    def slice(self, stop, inclusive=False):
+    def slice(self, stop=None, inclusive=False):
+        if stop is None:
+            stop = self.tell()[0], -1
+        if stop[1] == -1:
+            with self.restoring():
+                self.seek(stop)
+                stop = self.tell()
+            inclusive = True
         if stop < self.tell():
             yield self.current()
             try:
@@ -624,13 +631,15 @@ class RTPCursor(collections.Iterable):
             except StopIteration:
                 pass
 
-    def time_slice(self, begin_secs, end_secs):
+    def time_slice(self, begin_secs, end_secs, align=True):
         org = self.tell()
         
         # start
         self.fastforward(begin_secs)
         begin = self.tell()
-        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
+        if (align and
+            self.packet_type.payload_type and
+            issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin)):
             self.next_key_frame()
         start = self.tell()
         self.seek(begin)
@@ -643,7 +652,9 @@ class RTPCursor(collections.Iterable):
         self.seek(org)
         self.fastforward(end_secs)
         end = self.tell()
-        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
+        if (align and
+            self.packet_type.payload_type and
+            issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin)):
             self.prev_start_of_frame()
         stop = self.tell()
         stop_secs = end_secs + self.interval(end)
