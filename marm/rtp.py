@@ -136,7 +136,7 @@ class RTPPacket(object):
             clock_rate = 90000
 
     """
-    
+
     AUDIO_TYPE = 'audio'
     VIDEO_TYPE = 'video'
 
@@ -232,7 +232,7 @@ class RTPPacketReader(collections.Iterable):
     # Registry for mapping extensions to `RTPPacketReader` implementations.
     formats = {
     }
-    
+
     @classmethod
     def register(cls, format, type_):
         if not inspect.isclass(type_) or issubclass(RTPPacketReader, type_):
@@ -240,7 +240,7 @@ class RTPPacketReader(collections.Iterable):
         if format in cls.formats and cls.formats[format] != type_:
             raise RuntimeError('Different type for "{}" already registered'.format(format))
         cls.formats[format] = type_
-        
+
     @classmethod
     def open(cls, *args, **kwargs):
         if len(args) == 1 and not isinstance(args[0], basestring):
@@ -313,6 +313,9 @@ class RTPCursor(collections.Iterable):
             self.part = None
         self.c = collections.defaultdict(dict)
 
+    def is_cached(self, tag, key):
+        return tag in self.c and key in self.c[tag]
+
     def cache(self, tag, key, value=None):
         if value is not None:
             self.c[tag][key] = value
@@ -321,9 +324,9 @@ class RTPCursor(collections.Iterable):
 
     def spans(self, (b_part, b_pkt), (e_part, e_pkt)):
         for part in range(b_part, e_part + 1):
-            b_pkt = b_pkt if part == b_part else 0
-            e_pkt = e_pkt if part == e_part else -1
-            yield part, b_pkt, e_pkt
+            c_b_pkt = b_pkt if part == b_part else 0
+            c_e_pkt = e_pkt if part == e_part else -1
+            yield part, c_b_pkt, c_e_pkt
 
     def seek(self, (pos_part, pos_pkt)):
         if self.tell() == (pos_part, pos_pkt):
@@ -373,21 +376,18 @@ class RTPCursor(collections.Iterable):
         value = zero
         org = self.tell()
         for part, b_pos, e_pos in self.spans(org, stop):
-            if cache:
-                if b_pos == 0 and e_pos == -1:
-                    v = self.cache(cache, (part, b_pos, e_pos))
-                    if v is not None:
-                        value = reduce(r, [v], value)
-                        continue
-            self.seek((part, b_pos))
-            v = reduce(
-                r,
-                (m(pkt) for pkt in self.slice((part, e_pos), inclusive=e_pos == -1)),
-                zero,
-            )
-            if cache and b_pos == 0 and e_pos == -1:
-                self.cache(cache, (part, b_pos, e_pos), v)
+            if cache and self.is_cached(cache, (part, b_pos, e_pos)):
+                v = self.cache(cache, (part, b_pos, e_pos))
+            else:
+                self.seek((part, b_pos))
+                md = (m(pkt) for pkt in self.slice(
+                    (part, e_pos), inclusive=(e_pos == -1)
+                ))
+                v = reduce(r, md, zero)
+                if cache and (b_pos == 0 and e_pos == -1):
+                    self.cache(cache, (part, b_pos, e_pos), v)
             value = reduce(r, [v], value)
+        self.seek(stop)
         return value
 
     def search(self, match, dir='forward'):
@@ -478,7 +478,7 @@ class RTPCursor(collections.Iterable):
         """
         """
         org = self.tell()
-        
+
         # head
         begin_dt = self.fastforward(begin_secs)
         base = self.tell()
@@ -500,7 +500,7 @@ class RTPCursor(collections.Iterable):
         stop = self.tell()
         self.seek(base)
         stop_secs = end_secs + end_dt + self.interval(stop)
-        
+
         return start, start_secs, stop, stop_secs
 
     def time_positions(self, *args):
@@ -513,7 +513,7 @@ class RTPCursor(collections.Iterable):
             self.fastforward(secs)
             pos.append(self.tell())
         return pos
-    
+
     def trim_frames(self, stop, samples, scale=7, org=(0, 0)):
         start = self.tell()
         size = self.current().data.nb_channels * samples
@@ -633,7 +633,7 @@ class RTPCursor(collections.Iterable):
 
     def time_slice(self, begin_secs, end_secs, align=True):
         org = self.tell()
-        
+
         # start
         self.fastforward(begin_secs)
         begin = self.tell()
@@ -644,7 +644,7 @@ class RTPCursor(collections.Iterable):
         start = self.tell()
         self.seek(begin)
         start_secs = begin_secs + self.interval(start)
-        
+
         # stop
         if end_secs is None:
             self.seek(org)
@@ -658,11 +658,11 @@ class RTPCursor(collections.Iterable):
             self.prev_start_of_frame()
         stop = self.tell()
         stop_secs = end_secs + self.interval(end)
-        
+
         # iterator
-        
+
         class Slice(collections.Iterator):
-            
+
             def __init__(self, cur, start, stop):
                 self.cur, self.start, self.stop = cur, start, stop
                 self.i = None
@@ -676,7 +676,7 @@ class RTPCursor(collections.Iterable):
 
             def next(self):
                 return self.i.next()
-        
+
         return start_secs, stop_secs, Slice(self, start, stop)
 
     def current(self):
@@ -747,7 +747,7 @@ class RTPCursor(collections.Iterable):
                 if isinstance(self.file, basestring)
                 else getattr(self.file, 'name', '<memory>')
             )
-        
+
         @property
         def is_opened(self):
             return self.pkts is not None

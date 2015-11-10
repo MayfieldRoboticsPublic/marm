@@ -146,43 +146,38 @@ def mux(out_path, v_path, v_pkt, v_enc, a_path, a_pkt, a_enc):
         )
 
 
-def time_slice(
-        v_dst_path, v_src_path, v_pkt_type,
-        a_dst_path, a_src_path, a_pkt_type,
-        (b_secs, e_secs)):
-    # slice v
+def time_slice(dst_path, src_path, pkt_type, (b_secs, e_secs), align=True):
     cur = marm.rtp.RTPCursor(
-        [v_src_path.strpath],
-        marm.mjr.MJRRTPPacketReader,
-        packet_type=v_pkt_type,
+        [src_path.strpath],
+        marm.rtp.RTPPacketReader.open,
+        packet_type=pkt_type,
     )
-    _, _, pkts = cur.time_slice(b_secs, e_secs)
-    with v_dst_path.open('wb') as fo:
-        marm.mjr.write_header(fo, marm.mjr.VIDEO_TYPE)
-        for pkt in pkts:
-            marm.mjr.write_packet(fo, pkt)
-
-    # slice a to sync w/ v
-    cur = marm.rtp.RTPCursor(
-        [a_src_path.strpath],
-        marm.mjr.MJRRTPPacketReader,
-        packet_type=a_pkt_type,
-    )
-    _, _, pkts = cur.time_slice(b_secs, e_secs)
-    with a_dst_path.open('wb') as fo:
-        marm.mjr.write_header(fo, marm.mjr.AUDIO_TYPE)
+    _, _, pkts = cur.time_slice(b_secs, e_secs, align=align)
+    with dst_path.open('wb') as fo:
+        marm.mjr.write_header(fo, {
+            pkt_type.AUDIO_TYPE: marm.mjr.AUDIO_TYPE,
+            pkt_type.VIDEO_TYPE: marm.mjr.VIDEO_TYPE,
+        }[pkt_type.type])
         for pkt in pkts:
             marm.mjr.write_packet(fo, pkt)
 
 
 def time_cut(v_mjr, v_pkt_type, a_mjr, a_pkt_type, a_size, *deltas):
     v_cur = marm.rtp.RTPCursor(
-        [v_mjr.strpath],
+        map(lambda x: x.strpath, (
+            [v_mjr]
+            if not isinstance(v_mjr, collections.Sequence)
+            else v_mjr
+        )),
         marm.mjr.MJRRTPPacketReader,
         packet_type=v_pkt_type,
     )
     a_cur = marm.rtp.RTPCursor(
-        [a_mjr.strpath],
+        map(lambda x: x.strpath, (
+            [a_mjr]
+            if not isinstance(a_mjr, collections.Sequence)
+            else a_mjr
+        )),
         marm.mjr.MJRRTPPacketReader,
         packet_type=a_pkt_type,
     )
@@ -218,14 +213,22 @@ def time_cut(v_mjr, v_pkt_type, a_mjr, a_pkt_type, a_size, *deltas):
 
 def mux_time_cuts(dir, format, v_mjr, v_pkt_type, a_mjr, a_pkt_type, cuts):
     v_cur = marm.rtp.RTPCursor(
-        [v_mjr.strpath],
+        map(lambda x: x.strpath, (
+            [v_mjr]
+            if not isinstance(v_mjr, collections.Sequence)
+            else v_mjr
+        )),
         marm.mjr.MJRRTPPacketReader,
         packet_type=v_pkt_type,
     )
     v_prof = probe_video(v_cur)
 
     a_cur = marm.rtp.RTPCursor(
-        [a_mjr.strpath],
+        map(lambda x: x.strpath, (
+            [a_mjr]
+            if not isinstance(a_mjr, collections.Sequence)
+            else a_mjr
+        )),
         marm.mjr.MJRRTPPacketReader,
         packet_type=a_pkt_type,
     )
