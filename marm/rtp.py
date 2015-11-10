@@ -313,6 +313,16 @@ class RTPCursor(collections.Iterable):
             self.part = None
         self.c = collections.defaultdict(dict)
 
+    def is_first(self, pos):
+        return pos == (0, 0)
+
+    def is_last(self, (part, pkt)):
+        if part != len(self.parts) - 1:
+            return False
+        with self.restoring():
+            self.seek((-1, -1))
+            return self.tell() == (part, pkt)
+
     def is_cached(self, tag, key):
         return tag in self.c and key in self.c[tag]
 
@@ -459,8 +469,7 @@ class RTPCursor(collections.Iterable):
         if secs < 0:
             return self.rewind(-secs)
         start = self.current().secs
-        match = lambda pkt: pkt.secs - start >= secs
-        self.search(match, 'forward')
+        self.search(lambda pkt: pkt.secs - start >= secs, 'forward')
         return (self.current().secs - start) - secs
 
     def rewind(self, secs):
@@ -470,36 +479,97 @@ class RTPCursor(collections.Iterable):
         if secs < 0:
             return self.fastforward(-secs)
         start = self.current().secs
-        match = lambda pkt: start - pkt.secs >= secs
-        self.search(match, 'backward')
+        self.search(lambda pkt: start - pkt.secs >= secs, 'backward')
         return (start - self.current().secs) - secs
 
-    def time_cut(self, begin_secs, end_secs):
+    def time_cut(self, begin_secs, end_secs, align=True):
         """
+        Convert **time** offsets relative to current position in seconds to
+        **cursor** positions and optionally align them.
+
+        :param begin_secs: Offset to begin position in seconds from current
+            cursor position.
+
+        :param end_secs: Offset to end position in seconds from current cursor
+            position.
+
+        :param align: One of:
+
+            - True
+            - False
+            - "prev"
+
+            If frames span packets (e.g. for video) then alignment moved
+            positions to first preceding start of frame packet.
+
+            "prev" is the same as True but **first** moves positions back
+            one **before** doing alignment if position is **not** the last one.
+            This is useful for getting consistent time cuts when reaching the
+            end of the cursor that is later extended with more parts.
+
+        :returns: Tuple of:
+
+            - begin cursor position
+            - aligned begin time offset (just `begin_secs` if no `align`)
+            - end cursor position
+            - aligned end time offset (just `end_secs` if no `align`)
+
         """
         org = self.tell()
 
         # head
-        begin_dt = self.fastforward(begin_secs)
-        base = self.tell()
-        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
-            self.prev_start_of_frame()
+        b_dt = self.fastforward(begin_secs)
         start = self.tell()
-        self.seek(base)
-        start_secs = begin_secs + begin_dt + self.interval(start)
 
         # tail
         self.seek(org)
         if end_secs is None:
-            end_secs, end_dt = self.interval((-1, -1)), 0
+            end_secs, e_dt = self.interval((-1, -1)), 0
         else:
-            end_dt = self.fastforward(end_secs)
-        base = self.tell()
-        if self.packet_type.payload_type and issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin):
-            self.prev_start_of_frame()
+            e_dt = self.fastforward(end_secs)
         stop = self.tell()
-        self.seek(base)
-        stop_secs = end_secs + end_dt + self.interval(stop)
+
+        # align
+        start_unalign, stop_unalign = start, stop
+        if align:
+            # framing
+            if self.packet_type.type == self.packet_type.VIDEO_TYPE:
+                if align == 'prev':
+                    if not self.is_first(start):
+                        self.prev_to(start)
+                        self.prev_start_of_frame()
+                        start = self.tell()
+                    if not self.is_last(stop):
+                        self.prev_to(stop)
+                    else:
+                        self.seek(stop)
+                    self.prev_start_of_frame()
+                    stop = self.tell()
+                else:
+                    self.seek(start)
+                    self.prev_start_of_frame()
+                    start = self.tell()
+
+                    self.seek(stop)
+                    self.prev_start_of_frame()
+                    stop = self.tell()
+            # no-framing
+            else:
+                if align == 'prev':
+                    if not self.is_first(start):
+                        self.prev_to(start)
+                        start = self.tell()
+                    if not self.is_last(stop):
+                        self.prev_to(stop)
+                        stop = self.tell()
+        self.seek(start_unalign)
+        b_align_dt = self.interval(start)
+        self.seek(stop_unalign)
+        e_align_dt = self.interval(stop)
+
+        # seconds
+        start_secs = begin_secs + b_dt + b_align_dt
+        stop_secs = end_secs + e_dt + e_align_dt
 
         return start, start_secs, stop, stop_secs
 
@@ -594,6 +664,10 @@ class RTPCursor(collections.Iterable):
         )
         return pos, samples, off, scale
 
+    def prev_to(self, pos):
+        self.seek(pos)
+        return self.prev()
+
     def prev(self):
         _, pkt = self._prev()
         return pkt
@@ -637,9 +711,7 @@ class RTPCursor(collections.Iterable):
         # start
         self.fastforward(begin_secs)
         begin = self.tell()
-        if (align and
-            self.packet_type.payload_type and
-            issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin)):
+        if align and self.packet_type.type == self.packet_type.VIDEO_TYPE:
             self.next_key_frame()
         start = self.tell()
         self.seek(begin)
@@ -652,9 +724,7 @@ class RTPCursor(collections.Iterable):
         self.seek(org)
         self.fastforward(end_secs)
         end = self.tell()
-        if (align and
-            self.packet_type.payload_type and
-            issubclass(self.packet_type.payload_type, RTPVideoPayloadMixin)):
+        if align and self.packet_type.type == self.packet_type.VIDEO_TYPE:
             self.prev_start_of_frame()
         stop = self.tell()
         stop_secs = end_secs + self.interval(end)
