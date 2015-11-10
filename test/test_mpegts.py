@@ -11,8 +11,7 @@ import marm
     ]
 )
 def test_mpegts_last_ccs(fixtures, mpegts, ccs):
-    mpegts = fixtures.join(mpegts)
-    with mpegts.open('rb') as fo:
+    with fixtures.join(mpegts).open('rb') as fo:
         assert marm.frame.last_mpegts_ccs(fo) == ccs
 
 

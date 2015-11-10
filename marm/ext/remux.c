@@ -38,7 +38,7 @@ marm_result_t marm_remux(
         int nb_mpegts_cc,
         AVDictionary *opts_arg) {
 
-    int ret = 0, done = 0, i;
+    int ret = 0, done = 0, i, j;
     marm_result_t res = MARM_RESULT_OK;
     AVPacket pkt;
     unsigned char *buffer = NULL;
@@ -196,12 +196,14 @@ marm_result_t marm_remux(
             }
 
             // pes
-            o_st = o_fmtctx->streams[i];
-            mpegts_st = o_st->priv_data;
-            if (mpegts_st->pid == mpegts_ccs[i].pid) {
-                MARM_DEBUG(ctx, "resetting pes (pid=%d) cc %d -> %d", mpegts_ccs[i].pid, mpegts->pat.cc, mpegts_ccs[i].cc);
-                mpegts_st->cc = mpegts_ccs[i].cc;
-                continue;
+            for (j = 0; j < o_fmtctx->nb_streams; j++) {
+                o_st = o_fmtctx->streams[j];
+                mpegts_st = o_st->priv_data;
+                if (mpegts_st->pid == mpegts_ccs[i].pid) {
+                    MARM_DEBUG(ctx, "resetting pes (pid=%d) cc %d -> %d", mpegts_ccs[i].pid, mpegts->pat.cc, mpegts_ccs[i].cc);
+                    mpegts_st->cc = mpegts_ccs[i].cc;
+                    continue;
+                }
             }
         }
     }

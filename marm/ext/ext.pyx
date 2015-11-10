@@ -585,6 +585,8 @@ cpdef object remux(
         if mpegts_ccs:
             if len(mpegts_ccs) > 32:
                 raise ValueError('len(mpegts_ccs) > {0}'.format(32))
+            if isinstance(mpegts_ccs, dict):
+                mpegts_ccs = mpegts_ccs.items()
             for i, (pid, cc) in enumerate(mpegts_ccs):
                 mpegts_ccs_a[i].pid = <int>pid
                 mpegts_ccs_a[i].cc = <int>cc
