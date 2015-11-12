@@ -271,6 +271,11 @@ marm_result_t marm_remux(
     void *filter,
     marm_mpegts_cc_t *mpegts_ccs,
     int nb_mpegts_cc,
+    int64_t *offset_pts,
+    int nb_offset_pts,
+    marm_mpegts_cc_t *mpegts_next_ccs,
+    int *nb_mpegts_next_cc,
+    int max_nb_mpegts_next_cc,
     AVDictionary *opts);
 
 /**

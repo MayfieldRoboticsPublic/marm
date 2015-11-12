@@ -561,6 +561,7 @@ cpdef object remux(
         const char *out_format_name=NULL,
         const char *in_format_name=NULL,
         object mpegts_ccs=None,
+        object offset_pts=None,
         object options=None):
 
     cdef int res = libmarm.MARM_RESULT_OK
@@ -569,7 +570,11 @@ cpdef object remux(
     cdef void *filter_p = NULL
     cdef libmarm.marm_mpegts_cc_t mpegts_ccs_a[32]
     cdef libmarm.marm_mpegts_cc_t *mpegts_ccs_p = NULL
-    cdef libavutil.AVDictionary *av_opts = NULL;
+    cdef int64_t offset_pts_a[32]
+    cdef int64_t *offset_pts_p = NULL
+    cdef libavutil.AVDictionary *av_opts = NULL
+    cdef libmarm.marm_mpegts_cc_t mpegts_next_ccs[32]
+    cdef int nb_mpegts_next_cc = 0
     
     if options:
         for i, (key, value) in enumerate(options):
@@ -583,6 +588,7 @@ cpdef object remux(
     
         # mpegts continuity counters
         if mpegts_ccs:
+            memset(&mpegts_ccs_a, 0, sizeof(mpegts_ccs_a))
             if len(mpegts_ccs) > 32:
                 raise ValueError('len(mpegts_ccs) > {0}'.format(32))
             if isinstance(mpegts_ccs, dict):
@@ -591,7 +597,17 @@ cpdef object remux(
                 mpegts_ccs_a[i].pid = <int>pid
                 mpegts_ccs_a[i].cc = <int>cc
             mpegts_ccs_p = mpegts_ccs_a
-    
+
+        # pts offsets
+        if offset_pts:
+            if len(offset_pts) > 32:
+                raise ValueError('len(offset_pts) > {0}'.format(32))
+            if isinstance(offset_pts, dict):
+                offset_pts = zip(*sorted(offset_pts.items()))[1]
+            for i, offset in enumerate(offset_pts):
+                offset_pts[i] = <int64_t>offset
+            offset_pts_p = offset_pts_a
+
         # context
         marm_ctx(&ctx)
     
@@ -605,14 +621,21 @@ cpdef object remux(
             in_format_name,
             in_format_extension,
             filter_p,
-            mpegts_ccs_p,
-            <int>(len(mpegts_ccs) if mpegts_ccs else 0),
+            mpegts_ccs_p, <int>(len(mpegts_ccs) if mpegts_ccs else 0),
+            offset_pts_p, 32,
+            mpegts_next_ccs, &nb_mpegts_next_cc, 32,
             av_opts
         )
         marm_error(res)
     finally:
         if av_opts != NULL:
             libavutil.av_dict_free(&av_opts)
+            
+    r = dict([
+        (mpegts_next_ccs[i].pid, mpegts_next_ccs[i].cc)
+        for i in range(nb_mpegts_next_cc)
+    ]),
+    return r
 
 
 cpdef object last_mpegts_ccs(
@@ -622,7 +645,7 @@ cpdef object last_mpegts_ccs(
 
     cdef int res = libmarm.MARM_RESULT_OK
     cdef libmarm.marm_ctx_t ctx
-    cdef libmarm.marm_mpegts_cc_t ccs[10]
+    cdef libmarm.marm_mpegts_cc_t ccs[32]
     cdef int nb_cc = 0;
     
     # context
@@ -632,7 +655,7 @@ cpdef object last_mpegts_ccs(
     res = libmarm.marm_scan(
         &ctx,
         <void *>in_file, in_format_name, in_format_extension,
-        ccs, &nb_cc, 10,
+        ccs, &nb_cc, 32,
     )
     marm_error(res)
     
