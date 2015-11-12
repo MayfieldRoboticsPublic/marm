@@ -160,6 +160,7 @@ def time_slice(dst_path, src_path, pkt_type, (b_secs, e_secs), align=True):
         }[pkt_type.type])
         for pkt in pkts:
             marm.mjr.write_packet(fo, pkt)
+    return dst_path
 
 
 def time_cut(v_mjr, v_pkt_type, a_mjr, a_pkt_type, a_size, *deltas):

@@ -600,12 +600,13 @@ cpdef object remux(
 
         # pts offsets
         if offset_pts:
+            memset(&offset_pts_a, 0, sizeof(offset_pts_a))
             if len(offset_pts) > 32:
                 raise ValueError('len(offset_pts) > {0}'.format(32))
             if isinstance(offset_pts, dict):
                 offset_pts = zip(*sorted(offset_pts.items()))[1]
             for i, offset in enumerate(offset_pts):
-                offset_pts[i] = <int64_t>offset
+                offset_pts_a[i] = <int>offset
             offset_pts_p = offset_pts_a
 
         # context
@@ -630,7 +631,6 @@ cpdef object remux(
     finally:
         if av_opts != NULL:
             libavutil.av_dict_free(&av_opts)
-            
     r = dict([
         (mpegts_next_ccs[i].pid, mpegts_next_ccs[i].cc)
         for i in range(nb_mpegts_next_cc)
@@ -665,6 +665,62 @@ cpdef object last_mpegts_ccs(
         for i in range(nb_cc)
     ])
     return r
+
+
+cpdef object segment(
+        object out_file_template,
+        const char *out_format_name,
+        object in_file,
+        const char *in_format_extension,
+        const char *in_format_name=NULL,
+        int time=2,
+        int time_delta=0,
+        object mpegts_ccs=None,
+        object options=None):
+
+    cdef int res = libmarm.MARM_RESULT_OK
+    cdef libmarm.marm_ctx_t ctx
+    cdef libavutil.AVDictionary *av_opts = NULL
+    cdef libmarm.marm_mpegts_cc_t mpegts_ccs_a[32]
+    cdef libmarm.marm_mpegts_cc_t *mpegts_ccs_p = NULL
+    
+    # context
+    marm_ctx(&ctx)
+    
+    # libav* options
+    if options:
+        for i, (key, value) in enumerate(options):
+            libavutil.av_dict_set(&av_opts, <bytes>key, <bytes>value, 0)
+    
+    try:
+        # mpegts continuity counters
+        if mpegts_ccs:
+            memset(&mpegts_ccs_a, 0, sizeof(mpegts_ccs_a))
+            if len(mpegts_ccs) > 32:
+                raise ValueError('len(mpegts_ccs) > {0}'.format(32))
+            if isinstance(mpegts_ccs, dict):
+                mpegts_ccs = mpegts_ccs.items()
+            for i, (pid, cc) in enumerate(mpegts_ccs):
+                mpegts_ccs_a[i].pid = <int>pid
+                mpegts_ccs_a[i].cc = <int>cc
+            mpegts_ccs_p = mpegts_ccs_a
+        
+        # context
+        marm_ctx(&ctx)
+    
+        # segment it
+        res = libmarm.marm_segment(
+            &ctx,
+            out_file_template, out_format_name,
+            <void *>in_file, in_format_name, in_format_extension,
+            time, time_delta,
+            mpegts_ccs_p, <int>(len(mpegts_ccs) if mpegts_ccs else 0),
+            av_opts
+        )
+        marm_error(res)
+    finally:
+        if av_opts != NULL:
+            libavutil.av_dict_free(&av_opts)
 
 # init
 

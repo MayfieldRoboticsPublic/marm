@@ -345,7 +345,7 @@ def remux(
     """
     out_format_extension = out_format_extension or format_ext(out_fo, 'out_fo', )
     in_format_extension = in_format_extension or format_ext(in_fo, 'in_fo',)
-    ext.remux(
+    return ext.remux(
         out_fo,
         out_format_extension,
         in_fo,
@@ -358,6 +358,25 @@ def remux(
 def last_mpegts_ccs(in_fo, in_format_extension=None):
     in_format_extension = in_format_extension or format_ext(in_fo, 'in_fo')
     return ext.last_mpegts_ccs(in_fo, in_format_extension)
+
+
+def segment(
+        out_template,
+        out_format_name,
+        in_fo,
+        in_format_extension=None,
+        **kwargs):
+    """
+    Splits encoded video and audio into smaller segments.
+    """
+    in_format_extension = in_format_extension or format_ext(in_fo, 'in_fo')
+    return ext.segment(
+        out_template,
+        out_format_name,
+        in_fo,
+        in_format_extension,
+        **kwargs
+    )
 
 
 def format_ext(fo, tag):

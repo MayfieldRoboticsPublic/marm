@@ -1,65 +1,6 @@
 #include "marm.h"
+#include "mpegts.h"
 #include "util.h"
-
-// https://github.com/FFmpeg/FFmpeg/blob/6255bf3d0d2ee843ede8c0d74e4b35d2fd574b48/libavformat/mpegts.c
-
-#define NB_PID_MAX 8192
-
-typedef struct {
-    int pid;
-    int es_id;
-    int last_cc;
-    // ...
-} MpegTSFilter;
-
-typedef struct  {
-    const AVClass *class;
-    AVFormatContext *stream;
-    int raw_packet_size;
-    int size_stat[3];
-    int size_stat_count;
-    int64_t pos47_full;
-    int auto_guess;
-    int mpeg2ts_compute_pcr;
-    int fix_teletext_pts;
-    int64_t cur_pcr;
-    int pcr_incr;
-    int stop_parse;
-    AVPacket *pkt;
-    int64_t last_pos;
-    int skip_changes;
-    int skip_clear;
-    int scan_all_pmts;
-    int resync_size;
-    unsigned int nb_prg;
-    struct Program *prg;
-    int8_t crc_validity[NB_PID_MAX];
-    MpegTSFilter *pids[NB_PID_MAX];
-    int current_pid;
-} MpegTSContext;
-
-// https://github.com/FFmpeg/FFmpeg/blob/6e8d856ad6d3decfabad83bc169c2e7a16a16b55/libavformat/mpegtsenc.c
-
-typedef struct MpegTSSection {
-    int pid;
-    int cc;
-    void (*write_packet)(struct MpegTSSection *s, const uint8_t *packet);
-    void *opaque;
-} MpegTSSection;
-
-typedef struct MpegTSWrite {
-    const AVClass *av_class;
-    MpegTSSection pat; /* MPEG2 pat table */
-    MpegTSSection sdt; /* MPEG2 sdt table context */
-    // ...
-} MpegTSWrite;
-
-typedef struct MpegTSWriteStream {
-    void *service;
-    int pid; /* stream associated pid */
-    int cc;
-    // ...
-} MpegTSWriteStream;
 
 marm_result_t marm_remux(
         marm_ctx_t *ctx,
@@ -79,7 +20,7 @@ marm_result_t marm_remux(
         int max_nb_mpegts_next_cc,
         AVDictionary *opts_arg) {
 
-    int ret = 0, done = 0, i, j;
+    int ret = 0, done = 0, i;
     marm_result_t res = MARM_RESULT_OK;
     AVPacket pkt;
     unsigned char *buffer = NULL;
@@ -97,10 +38,6 @@ marm_result_t marm_remux(
     AVDictionary *opts = NULL;
     if (opts_arg)
         av_dict_copy(&opts, opts_arg, 0);
-
-    MpegTSWrite *i_mpegts;
-    MpegTSWriteStream *i_mpegts_st;
-    MpegTSContext *o_mpegts;
 
     // in format context
     i_fmtctx  = avformat_alloc_context();
@@ -217,41 +154,10 @@ marm_result_t marm_remux(
 
     // reset mpegts ccs
     // NOTE: these are set by `mpegts_write_header` via `avformat_write_header`.
-    // FIXME: this uses private libav* data, add `avformat_write_header` options?
     if (mpegts_ccs &&
         nb_mpegts_cc != 0 &&
         strcmp(o_fmtctx->oformat->name, "mpegts") == 0) {
-        i_mpegts = o_fmtctx->priv_data;
-        for (i = 0; i < nb_mpegts_cc; i += 1) {
-            // pat
-            if (mpegts_ccs[i].pid == MARM_MPEGTS_PAT_PID) {
-                MARM_DEBUG(ctx, "resetting pat (pid=%d) cc %d -> %d", mpegts_ccs[i].pid, i_mpegts->pat.cc, mpegts_ccs[i].cc);
-                i_mpegts->pat.cc = mpegts_ccs[i].cc;
-                continue;
-            }
-
-            // sdt
-            if (mpegts_ccs[i].pid == MARM_MPEGTS_PAT_PID) {
-                MARM_DEBUG(ctx, "resetting sdt (pid=%d) cc %d -> %d", mpegts_ccs[i].pid, i_mpegts->pat.cc, mpegts_ccs[i].cc);
-                i_mpegts->sdt.cc = mpegts_ccs[i].cc;
-                continue;
-            }
-
-            // pes
-            for (j = 0; j < o_fmtctx->nb_streams; j++) {
-                o_st = o_fmtctx->streams[j];
-                i_mpegts_st = o_st->priv_data;
-                if (i_mpegts_st->pid == mpegts_ccs[i].pid) {
-                    MARM_DEBUG(
-                        ctx,
-                        "resetting pes (pid=%d) cc %d -> %d",
-                        mpegts_ccs[i].pid, i_mpegts->pat.cc, mpegts_ccs[i].cc)
-                    ;
-                    i_mpegts_st->cc = mpegts_ccs[i].cc;
-                    continue;
-                }
-            }
-        }
+        reset_mpegts_ccs(ctx, o_fmtctx, mpegts_ccs, nb_mpegts_cc);
     }
 
     // packets
@@ -286,8 +192,8 @@ marm_result_t marm_remux(
 
         // offset pts
         if (offset_pts) {
-            pkt.pts += offset_pts[i];
-            pkt.dts += offset_pts[i];
+            pkt.pts += offset_pts[pkt.stream_index];
+            pkt.dts += offset_pts[pkt.stream_index];
         }
 
         // prepare it for out
@@ -316,30 +222,9 @@ marm_result_t marm_remux(
         goto cleanup;
     }
 
+    // load next mpegts ccs
     if (mpegts_next_ccs) {
-        // FIXME: uses private libav* data, is there a public way?
-        o_mpegts = i_fmtctx->priv_data;
-        for (i = 0, j = 0; i < NB_PID_MAX; i += 1) {
-            if (!o_mpegts->pids[i])
-                continue;
-            if (j >= max_nb_mpegts_next_cc) {
-                MARM_INFO(
-                    ctx,
-                    "skipping pid %d w/ last cc %d (%d >= %d)",
-                    o_mpegts->pids[i]->pid, o_mpegts->pids[i]->last_cc, j, max_nb_mpegts_next_cc
-                ) ;
-            } else {
-                MARM_DEBUG(
-                    ctx,
-                    "pid %d w/ last cc %d (%d/%d)",
-                    o_mpegts->pids[i]->pid, o_mpegts->pids[i]->last_cc, j, max_nb_mpegts_next_cc
-                );
-                mpegts_next_ccs[j].pid = o_mpegts->pids[i]->pid;
-                mpegts_next_ccs[j].cc = o_mpegts->pids[i]->last_cc;
-            }
-            j += 1;
-        }
-        *nb_mpegts_next_cc = j < max_nb_mpegts_next_cc ? j : max_nb_mpegts_next_cc;
+        load_mpegts_ccs(ctx, mpegts_next_ccs, nb_mpegts_next_cc, max_nb_mpegts_next_cc, o_fmtctx);
     }
 
 cleanup:

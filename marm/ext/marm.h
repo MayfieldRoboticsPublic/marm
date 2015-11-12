@@ -13,6 +13,7 @@
 #define MARM_RESULT_ABORTED         1
 #define MARM_RESULT_WRITE_FAILED    2
 #define MARM_RESULT_MEMORY_ERROR    3
+#define MARM_RESULT_BAD_VALUE       4
 
 typedef int marm_result_t;
 
@@ -289,5 +290,21 @@ marm_result_t marm_scan(
     marm_mpegts_cc_t *mpegts_ccs,
     int *nb_mpegts_cc,
     int max_nb_mpegts_cc);
+
+/**
+ * Segment container.
+ */
+marm_result_t marm_segment(
+    marm_ctx_t *ctx,
+    const char *out_file_template,
+    const char *out_format_name,
+    void *in_file,
+    const char *in_format_name,
+    const char *in_format_extension,
+    float time,
+    float time_delta,
+    marm_mpegts_cc_t *mpegts_ccs,
+    int nb_mpegts_cc,
+    AVDictionary *opts_arg);
 
 #endif /* MARM_H */
