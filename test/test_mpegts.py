@@ -1,5 +1,4 @@
 import itertools
-import re
 
 import pytest
 
@@ -350,7 +349,7 @@ def test_mpegts_segment(
         '-i', src.strpath,
         '-c:v', 'h264',
         '-r', '25',
-        '-x264opts', 'min-keyint={0}:scenecut=-1'.format(1 * 25),
+        '-force_key_frames', 'expr:gte(t,n_forced*{0})'.format(5),
         '-c:a', 'aac', '-strict', '-2',
         '-b:a', '22k',
         '-r:a', '48k',
@@ -370,7 +369,7 @@ def test_mpegts_segment(
             'mpegts',
             sfo,
             time=interval,
-            time_delta=1 / 25.0,
+            time_delta=1 / (1 * 25.0),
             mpegts_ccs=ccs,
             options=[
                 ('copyts', '1'),
@@ -379,8 +378,26 @@ def test_mpegts_segment(
             ],
         )
 
+    # check segment packets
+    for s in sorted(tmpdir.listdir('s-*.ts')):
+        s_pkts = pytest.packets(s, bucket='stream')
+
+        # videos start w/ keyframe
+        assert all(
+            s_pkts[idx][0]['flags'] == 'K'
+            for idx in s_pkts.keys() if s_pkts[idx][0]['codec_type'] == 'video'
+        )
+
+        # durations are close to interval
+        assert all(
+            abs(
+                interval - (float(pkts[-1]['pts_time']) - float(pkts[0]['pts_time']))
+            ) < 0.2
+            for pkts in s_pkts.values()[:-1]
+        )
+
     # concat segments
-    concat = tmpdir.join('concat.ts')
+    concat = tmpdir.join('c.ts')
     with concat.open('wb') as dfo:
         for rseg in sorted(tmpdir.listdir('s-*.ts')):
             with rseg.open('rb') as sfo:

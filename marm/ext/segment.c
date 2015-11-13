@@ -103,6 +103,7 @@ static marm_result_t segment_init(segment_t *seg, AVDictionary *opts) {
     MARM_INFO(
         seg->ctx,
         "using interval=%"PRId64" from time=%0.6f - time_delta=%0.6f w/ time_base=%"PRId64"/%"PRId64"",
+        seg->interval,
         seg->time,
         seg->time_delta,
         seg->ref_stream->time_base.num, seg->ref_stream->time_base.den
@@ -172,6 +173,13 @@ static marm_result_t segment_close(segment_t *seg, int last) {
             res = -1;
             goto cleanup;
         }
+    } else {
+        // flush packets
+        ret = av_interleaved_write_frame(seg->ofctx, NULL);
+        if (ret < 0) {
+            MARM_ERROR(seg->ctx, "could not flush interleave queues: %d - %s", res, av_err2str(ret));
+            goto cleanup;
+        }
     }
 
     // close file
@@ -206,6 +214,29 @@ static int segment_at_split(segment_t *seg, AVPacket *pkt) {
         return 0;
 
     return (pkt->pts - seg->prev_pts) >= seg->interval;
+}
+
+static marm_result_t segment_split(segment_t *seg, AVPacket *pkt) {
+    marm_result_t res = MARM_RESULT_OK;
+
+    MARM_INFO(
+        seg->ctx,
+        "splitting segment #%d at: pts=%"PRId64", prev_pts=%"PRId64", delta=%"PRId64", interval=%"PRId64"",
+        seg->nb, pkt->pts, seg->prev_pts, (pkt->pts - seg->prev_pts), seg->interval
+    );
+
+    res = segment_close(seg, 0);
+    if (res != 0) {
+        return res;
+    }
+
+    res = segment_open(seg);
+    if (res != 0) {
+        return res;
+    }
+    seg->prev_pts = pkt->pts;
+
+    return res;
 }
 
 marm_result_t marm_segment(
@@ -310,6 +341,12 @@ marm_result_t marm_segment(
         ret = av_read_frame(ifctx, &pkt);
         if (ret < 0)
             break;
+        ret = av_dup_packet(&pkt);
+        if (ret < 0) {
+            MARM_ERROR(ctx, "failed to dup packet: %d - %s", ret, av_err2str(ret));
+            res = -1;
+            goto cleanup;
+        }
         ist  = ifctx->streams[pkt.stream_index];
         ost = seg.ofctx->streams[pkt.stream_index];
         MARM_LOG_PACKET(ctx, MARM_LOG_LEVEL_DEBUG, "in ", &pkt, &ist->time_base);
@@ -323,15 +360,17 @@ marm_result_t marm_segment(
 
         // move to next segment
         if (segment_at_split(&seg, &pkt)) {
-            segment_close(&seg, 0);
-            segment_open(&seg);
+            res = segment_split(&seg, &pkt);
+            if (res != 0) {
+                goto cleanup;
+            }
         }
 
         // write to out to current segment
         ret = av_interleaved_write_frame(seg.ofctx, &pkt);
         av_free_packet(&pkt);
         if (ret < 0) {
-            MARM_ERROR(ctx, "failed to write frame: %d - %s", res, av_err2str(ret));
+            MARM_ERROR(ctx, "failed to write frame: %d - %s", ret, av_err2str(ret));
             res = MARM_RESULT_WRITE_FAILED;
             goto cleanup;
         }

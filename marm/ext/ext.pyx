@@ -673,8 +673,8 @@ cpdef object segment(
         object in_file,
         const char *in_format_extension,
         const char *in_format_name=NULL,
-        int time=2,
-        int time_delta=0,
+        float time=2.0,
+        float time_delta=0.0,
         object mpegts_ccs=None,
         object options=None):
 

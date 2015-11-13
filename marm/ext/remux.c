@@ -211,7 +211,6 @@ marm_result_t marm_remux(
             res = MARM_RESULT_WRITE_FAILED;
             goto cleanup;
         }
-        av_free_packet(&pkt);
     }
 
     // write trailer
