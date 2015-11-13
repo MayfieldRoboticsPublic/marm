@@ -181,9 +181,6 @@ cdef extern from 'marm.h':
         int nb_mpegts_ccs,
         int64_t *offset_pts,
         int nb_offset_pts,
-        marm_mpegts_cc_t *mpegts_next_ccs,
-        int *nb_mpegts_next_cc,
-        int max_nb_mpegts_next_cc,
         libavutil.AVDictionary *opts) except *
 
     # scan

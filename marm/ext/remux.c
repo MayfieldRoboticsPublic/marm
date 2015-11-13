@@ -15,9 +15,6 @@ marm_result_t marm_remux(
         int nb_mpegts_cc,
         int64_t *offset_pts,
         int nb_offset_pts,
-        marm_mpegts_cc_t *mpegts_next_ccs,
-        int *nb_mpegts_next_cc,
-        int max_nb_mpegts_next_cc,
         AVDictionary *opts_arg) {
 
     int ret = 0, done = 0, i;
@@ -219,11 +216,6 @@ marm_result_t marm_remux(
         MARM_ERROR(ctx, "could not write trailer: %d - %s", res, av_err2str(res));
         res = -1;
         goto cleanup;
-    }
-
-    // load next mpegts ccs
-    if (mpegts_next_ccs) {
-        load_mpegts_ccs(ctx, mpegts_next_ccs, nb_mpegts_next_cc, max_nb_mpegts_next_cc, o_fmtctx);
     }
 
 cleanup:

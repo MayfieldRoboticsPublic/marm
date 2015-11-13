@@ -573,8 +573,6 @@ cpdef object remux(
     cdef int64_t offset_pts_a[32]
     cdef int64_t *offset_pts_p = NULL
     cdef libavutil.AVDictionary *av_opts = NULL
-    cdef libmarm.marm_mpegts_cc_t mpegts_next_ccs[32]
-    cdef int nb_mpegts_next_cc = 0
     
     if options:
         for i, (key, value) in enumerate(options):
@@ -624,18 +622,12 @@ cpdef object remux(
             filter_p,
             mpegts_ccs_p, <int>(len(mpegts_ccs) if mpegts_ccs else 0),
             offset_pts_p, 32,
-            mpegts_next_ccs, &nb_mpegts_next_cc, 32,
             av_opts
         )
         marm_error(res)
     finally:
         if av_opts != NULL:
             libavutil.av_dict_free(&av_opts)
-    r = dict([
-        (mpegts_next_ccs[i].pid, mpegts_next_ccs[i].cc)
-        for i in range(nb_mpegts_next_cc)
-    ]),
-    return r
 
 
 cpdef object last_mpegts_ccs(
