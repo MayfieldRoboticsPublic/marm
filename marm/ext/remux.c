@@ -1,29 +1,6 @@
 #include "marm.h"
+#include "mpegts.h"
 #include "util.h"
-
-
-// https://github.com/FFmpeg/FFmpeg/blob/6e8d856ad6d3decfabad83bc169c2e7a16a16b55/libavformat/mpegtsenc.c
-
-typedef struct MpegTSSection {
-    int pid;
-    int cc;
-    void (*write_packet)(struct MpegTSSection *s, const uint8_t *packet);
-    void *opaque;
-} MpegTSSection;
-
-typedef struct MpegTSWrite {
-    const AVClass *av_class;
-    MpegTSSection pat; /* MPEG2 pat table */
-    MpegTSSection sdt; /* MPEG2 sdt table context */
-    // ...
-} MpegTSWrite;
-
-typedef struct MpegTSWriteStream {
-    void *service;
-    int pid; /* stream associated pid */
-    int cc;
-    // ...
-} MpegTSWriteStream;
 
 marm_result_t marm_remux(
         marm_ctx_t *ctx,
@@ -36,9 +13,14 @@ marm_result_t marm_remux(
         void *filter,
         marm_mpegts_cc_t *mpegts_ccs,
         int nb_mpegts_cc,
+        int64_t *offset_pts,
+        int nb_offset_pts,
+        marm_mpegts_cc_t *mpegts_next_ccs,
+        int *nb_mpegts_next_cc,
+        int max_nb_mpegts_next_cc,
         AVDictionary *opts_arg) {
 
-    int ret = 0, done = 0, i, j;
+    int ret = 0, done = 0, i;
     marm_result_t res = MARM_RESULT_OK;
     AVPacket pkt;
     unsigned char *buffer = NULL;
@@ -56,9 +38,6 @@ marm_result_t marm_remux(
     AVDictionary *opts = NULL;
     if (opts_arg)
         av_dict_copy(&opts, opts_arg, 0);
-
-    MpegTSWrite *mpegts;
-    MpegTSWriteStream *mpegts_st;
 
     // in format context
     i_fmtctx  = avformat_alloc_context();
@@ -175,37 +154,10 @@ marm_result_t marm_remux(
 
     // reset mpegts ccs
     // NOTE: these are set by `mpegts_write_header` via `avformat_write_header`.
-    // FIXME: this uses private libav* data, add `avformat_write_header` options?
     if (mpegts_ccs &&
         nb_mpegts_cc != 0 &&
         strcmp(o_fmtctx->oformat->name, "mpegts") == 0) {
-        mpegts = o_fmtctx->priv_data;
-        for (i = 0; i < nb_mpegts_cc; i += 1) {
-            // pat
-            if (mpegts_ccs[i].pid == MARM_MPEGTS_PAT_PID) {
-                MARM_DEBUG(ctx, "resetting pat (pid=%d) cc %d -> %d", mpegts_ccs[i].pid, mpegts->pat.cc, mpegts_ccs[i].cc);
-                mpegts->pat.cc = mpegts_ccs[i].cc;
-                continue;
-            }
-
-            // sdt
-            if (mpegts_ccs[i].pid == MARM_MPEGTS_PAT_PID) {
-                MARM_DEBUG(ctx, "resetting sdt (pid=%d) cc %d -> %d", mpegts_ccs[i].pid, mpegts->pat.cc, mpegts_ccs[i].cc);
-                mpegts->sdt.cc = mpegts_ccs[i].cc;
-                continue;
-            }
-
-            // pes
-            for (j = 0; j < o_fmtctx->nb_streams; j++) {
-                o_st = o_fmtctx->streams[j];
-                mpegts_st = o_st->priv_data;
-                if (mpegts_st->pid == mpegts_ccs[i].pid) {
-                    MARM_DEBUG(ctx, "resetting pes (pid=%d) cc %d -> %d", mpegts_ccs[i].pid, mpegts->pat.cc, mpegts_ccs[i].cc);
-                    mpegts_st->cc = mpegts_ccs[i].cc;
-                    continue;
-                }
-            }
-        }
+        reset_mpegts_ccs(ctx, o_fmtctx, mpegts_ccs, nb_mpegts_cc);
     }
 
     // packets
@@ -238,6 +190,12 @@ marm_result_t marm_remux(
             }
         }
 
+        // offset pts
+        if (offset_pts) {
+            pkt.pts += offset_pts[pkt.stream_index];
+            pkt.dts += offset_pts[pkt.stream_index];
+        }
+
         // prepare it for out
         pkt.pts = av_rescale_q_rnd(pkt.pts, i_st->time_base, o_st->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
         pkt.dts = av_rescale_q_rnd(pkt.dts, i_st->time_base, o_st->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
@@ -253,7 +211,6 @@ marm_result_t marm_remux(
             res = MARM_RESULT_WRITE_FAILED;
             goto cleanup;
         }
-        av_free_packet(&pkt);
     }
 
     // write trailer
@@ -262,6 +219,11 @@ marm_result_t marm_remux(
         MARM_ERROR(ctx, "could not write trailer: %d - %s", res, av_err2str(res));
         res = -1;
         goto cleanup;
+    }
+
+    // load next mpegts ccs
+    if (mpegts_next_ccs) {
+        load_mpegts_ccs(ctx, mpegts_next_ccs, nb_mpegts_next_cc, max_nb_mpegts_next_cc, o_fmtctx);
     }
 
 cleanup:

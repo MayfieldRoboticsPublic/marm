@@ -70,7 +70,7 @@ class drop_n(frame_filter):
           1: {'packets': 5986, 'frames': 5986}}),
     ]
 )
-def test_remux(
+def test_remux_filter(
         fixtures,
         tmpdir,
         v_store, v_pkt, v_enc,

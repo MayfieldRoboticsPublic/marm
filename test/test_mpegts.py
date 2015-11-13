@@ -35,14 +35,14 @@ def test_mpegts_stitch_one(
         time_slice,
         time_cuts):
     # time slice mjr
-    v_src_mjr = fixtures.join(v_mjr)
-    a_src_mjr = fixtures.join(a_mjr)
-    v_dst_mjr = tmpdir.join(v_src_mjr.basename)
-    a_dst_mjr = tmpdir.join(a_src_mjr.basename)
-    pytest.time_slice(v_dst_mjr, v_src_mjr, v_pkt_type, time_slice,)
-    pytest.time_slice(a_dst_mjr, a_src_mjr, a_pkt_type, time_slice)
-    v_mjr = v_dst_mjr
-    a_mjr = a_dst_mjr
+    v_mjr = pytest.time_slice(
+        tmpdir.join('v.mjr'),
+        fixtures.join(v_mjr), v_pkt_type, time_slice,
+    )
+    a_mjr = pytest.time_slice(
+        tmpdir.join('a.mjr'),
+        fixtures.join(a_mjr), a_pkt_type, time_slice,
+    )
 
     # full
     v_cuts, a_cuts = pytest.time_cut(
@@ -307,3 +307,107 @@ def test_mpegts_stitch_many(
             c_pts != f_pts
             for c_pts, f_pts in itertools.izip(sorted(c_p), sorted(f_p))
         ) < 0.01 * len(c_p)
+
+
+@pytest.mark.parametrize(
+    'v_store,v_pkt,v_enc,a_store,a_pkt,a_enc,time_slice,interval', [
+        ('sonic-v.mjr', marm.vp8.VP8RTPPacket, 'libvpx',
+         'sonic-a.mjr', marm.opus.OpusRTPPacket, 'libopus',
+         (0, 30),
+         5),
+    ]
+)
+def test_mpegts_segment(
+        fixtures,
+        tmpdir,
+        v_store, v_pkt, v_enc,
+        a_store, a_pkt, a_enc,
+        time_slice,
+        interval):
+    # time slice src
+    v_src = pytest.time_slice(
+        tmpdir.join('v.mjr'),
+        fixtures.join(v_store), v_pkt, time_slice,
+    )
+    a_src = pytest.time_slice(
+        tmpdir.join('a.mjr'),
+        fixtures.join(a_store), a_pkt, time_slice,
+    )
+
+    # mux src
+    src = tmpdir.join('c.mkv')
+    pytest.mux(
+        src,
+        v_src, v_pkt, v_enc,
+        a_src, a_pkt, a_enc,
+    )
+
+    # xcode src -> full
+    full = tmpdir.join('f.ts')
+    ffmpeg = marm.FFMPEG([
+        '-y',
+        '-i', src.strpath,
+        '-c:v', 'h264',
+        '-r', '25',
+        '-force_key_frames', 'expr:gte(t,n_forced*{0})'.format(5),
+        '-c:a', 'aac', '-strict', '-2',
+        '-b:a', '22k',
+        '-r:a', '48k',
+        '-copyts',
+        '-mpegts_copyts', '1',
+        '-avoid_negative_ts', '0',
+        full.strpath,
+    ])
+    ffmpeg()
+
+    # split full -> segments
+    seg_fmt = tmpdir.join('s-%03d.ts')
+    ccs = {}
+    with full.open('rb') as sfo:
+        marm.frame.segment(
+            seg_fmt.strpath,
+            'mpegts',
+            sfo,
+            time=interval,
+            time_delta=1 / (1 * 25.0),
+            mpegts_ccs=ccs,
+            options=[
+                ('copyts', '1'),
+                ('mpegts_copyts', '1'),
+                ('avoid_negative_ts', '0'),
+            ],
+        )
+
+    # check segment packets
+    for s in sorted(tmpdir.listdir('s-*.ts')):
+        s_pkts = pytest.packets(s, bucket='stream')
+
+        # videos start w/ keyframe
+        assert all(
+            s_pkts[idx][0]['flags'] == 'K'
+            for idx in s_pkts.keys() if s_pkts[idx][0]['codec_type'] == 'video'
+        )
+
+        # durations are close to interval
+        assert all(
+            abs(
+                interval - (float(pkts[-1]['pts_time']) - float(pkts[0]['pts_time']))
+            ) < 0.2
+            for pkts in s_pkts.values()[:-1]
+        )
+
+    # concat segments
+    concat = tmpdir.join('c.ts')
+    with concat.open('wb') as dfo:
+        for rseg in sorted(tmpdir.listdir('s-*.ts')):
+            with rseg.open('rb') as sfo:
+                dfo.write(sfo.read())
+
+    # and compare to full
+    full_pkts = pytest.packets(
+        full, bucket='stream', parse=lambda p: p['pts']
+    )
+    concat_pkts = pytest.packets(
+        concat, bucket='stream', parse=lambda p: p['pts']
+    )
+    assert full_pkts == concat_pkts

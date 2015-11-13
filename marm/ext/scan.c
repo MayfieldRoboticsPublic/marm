@@ -1,42 +1,6 @@
 #include "marm.h"
+#include "mpegts.h"
 #include "util.h"
-
-// https://github.com/FFmpeg/FFmpeg/blob/6255bf3d0d2ee843ede8c0d74e4b35d2fd574b48/libavformat/mpegts.c
-
-#define NB_PID_MAX 8192
-
-typedef struct {
-    int pid;
-    int es_id;
-    int last_cc;
-    // ...
-} MpegTSFilter;
-
-typedef struct  {
-    const AVClass *class;
-    AVFormatContext *stream;
-    int raw_packet_size;
-    int size_stat[3];
-    int size_stat_count;
-    int64_t pos47_full;
-    int auto_guess;
-    int mpeg2ts_compute_pcr;
-    int fix_teletext_pts;
-    int64_t cur_pcr;
-    int pcr_incr;
-    int stop_parse;
-    AVPacket *pkt;
-    int64_t last_pos;
-    int skip_changes;
-    int skip_clear;
-    int scan_all_pmts;
-    int resync_size;
-    unsigned int nb_prg;
-    struct Program *prg;
-    int8_t crc_validity[NB_PID_MAX];
-    MpegTSFilter *pids[NB_PID_MAX];
-    int current_pid;
-} MpegTSContext;
 
 marm_result_t marm_scan(
     marm_ctx_t *ctx,
@@ -47,7 +11,7 @@ marm_result_t marm_scan(
     int *nb_mpegts_cc,
     int max_nb_mpegts_cc) {
 
-    int ret = 0, done = 0, i, j;
+    int ret = 0, done = 0;
     marm_result_t res = MARM_RESULT_OK;
     AVPacket pkt = {0};
     unsigned char *buffer = NULL;
@@ -57,8 +21,6 @@ marm_result_t marm_scan(
     AVFormatContext *i_fmtctx = NULL;
     AVStream *i_st = NULL;
     file_ctx_t i_filectx = { .ctx = ctx, .file = in_file };
-
-    MpegTSContext *mpegts;
 
     // in format context
     i_fmtctx  = avformat_alloc_context();
@@ -119,21 +81,7 @@ marm_result_t marm_scan(
     }
 
     if (mpegts_ccs) {
-        // FIXME: uses private libav* data, is there a public way?
-        mpegts = i_fmtctx->priv_data;
-        for (i = 0, j = 0; i < NB_PID_MAX; i += 1) {
-            if (!mpegts->pids[i])
-                continue;
-            if (j >= max_nb_mpegts_cc) {
-                MARM_INFO(ctx, "skipping pid %d w/ last cc %d (%d >= %d)", mpegts->pids[i]->pid, mpegts->pids[i]->last_cc, j, max_nb_mpegts_cc);
-            } else {
-                MARM_DEBUG(ctx, "pid %d w/ last cc %d (%d/%d)", mpegts->pids[i]->pid, mpegts->pids[i]->last_cc, j, max_nb_mpegts_cc);
-                mpegts_ccs[j].pid = mpegts->pids[i]->pid;
-                mpegts_ccs[j].cc = mpegts->pids[i]->last_cc;
-            }
-            j += 1;
-        }
-        *nb_mpegts_cc = j < max_nb_mpegts_cc ? j : max_nb_mpegts_cc;
+        load_mpegts_ccs(ctx, mpegts_ccs, nb_mpegts_cc, max_nb_mpegts_cc, i_fmtctx);
     }
 
 cleanup:

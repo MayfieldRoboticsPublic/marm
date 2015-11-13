@@ -37,7 +37,9 @@ ext_modules = [
          'marm/ext/mux.c',
          'marm/ext/remux.c',
          'marm/ext/scan.c',
+         'marm/ext/segment.c',
          'marm/ext/util.c',
+         'marm/ext/mpegts.c',
          'marm/ext/ext.pyx'],
         include_dirs=['marm/ext/'],
         extra_compile_args=(

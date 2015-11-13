@@ -179,6 +179,11 @@ cdef extern from 'marm.h':
         void *filter,
         marm_mpegts_cc_t *mpegts_ccs,
         int nb_mpegts_ccs,
+        int64_t *offset_pts,
+        int nb_offset_pts,
+        marm_mpegts_cc_t *mpegts_next_ccs,
+        int *nb_mpegts_next_cc,
+        int max_nb_mpegts_next_cc,
         libavutil.AVDictionary *opts) except *
 
     # scan
@@ -191,3 +196,18 @@ cdef extern from 'marm.h':
         marm_mpegts_cc_t *mpegts_ccs,
         int *nb_mpegts_cc,
         int max_nb_mpegts_cc) except *
+
+    # segment
+    
+    marm_result_t marm_segment(
+        marm_ctx_t *ctx,
+        const char *out_file_template,
+        const char *out_format_name,
+        void *in_file,
+        const char *in_format_name,
+        const char *in_format_extension,
+        float time,
+        float time_delta,
+        marm_mpegts_cc_t *mpegts_ccs,
+        int nb_mpegts_cc,
+        libavutil.AVDictionary *opts_arg) except *
