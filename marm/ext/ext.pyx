@@ -676,9 +676,6 @@ cpdef object segment(
     cdef libmarm.marm_mpegts_cc_t mpegts_ccs_a[32]
     cdef libmarm.marm_mpegts_cc_t *mpegts_ccs_p = NULL
     
-    # context
-    marm_ctx(&ctx)
-    
     # libav* options
     if options:
         for i, (key, value) in enumerate(options):

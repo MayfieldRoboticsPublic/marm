@@ -14,7 +14,7 @@ import os
 import StringIO
 import struct
 
-from . import ext
+from . import ext, VideoFrame
 
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,18 @@ class RTPAudioPayloadMixin(object):
     def nb_channels(self):
         pass
 
+    @classmethod
+    def probe(cls, cur, window=100):
+        bit_rate = 96000  # TODO: how to probe/estimate?
+        sample_rate = 48000  # TODO: how to probe/estimate?
+        with cur.restoring():
+            channel_layout = probe_audio_channel_layout(cur)
+        return {
+            'sample_rate': sample_rate,
+            'bit_rate': bit_rate,
+            'channel_layout': channel_layout,
+        }
+
 
 class RTPVideoPayloadMixin(object):
     """
@@ -110,6 +122,22 @@ class RTPVideoPayloadMixin(object):
     @abc.abstractproperty
     def height(self):
         pass
+
+    @classmethod
+    def probe(cls, cur, window=100):
+        with cur.restoring():
+            frame_rate = estimate_video_frame_rate(cur, window=window)
+        with cur.restoring():
+            (width, height) = probe_video_dimensions(cur)
+        bit_rate = 4000000  # TODO: estimate?
+        pixel_format = VideoFrame.PIX_FMT_YUV420P  # TODO: probe?
+        return {
+            'pixel_format': pixel_format,
+            'frame_rate': frame_rate,
+            'bit_rate': bit_rate,
+            'width': width,
+            'height': height,
+        }
 
 
 class RTPPacket(object):
@@ -300,11 +328,11 @@ class RTPCursor(collections.Iterable):
     Cursor used to iterate over a collection or stored `RTPPacket`s.
     """
 
-    def __init__(self, parts, part_type, **part_kwargs):
-        self.part_type = part_type
+    def __init__(self, parts, part_type=None, **part_kwargs):
+        self.part_type = part_type or RTPPacketReader.open
         self.packet_type = part_kwargs.get('packet_type', RTPPacket)
         self.parts = [
-            self._Part(part, part_type, part_kwargs) for part in parts
+            self._Part(part, self.part_type, part_kwargs) for part in parts
         ]
         self.pos_part, self.pos_pkt = 0, 0
         if self.parts:
@@ -312,6 +340,9 @@ class RTPCursor(collections.Iterable):
         else:
             self.part = None
         self.c = collections.defaultdict(dict)
+
+    def probe(self, window=100):
+        return self.packet_type.payload_type.probe(self, window)
 
     def is_first(self, pos):
         return pos == (0, 0)

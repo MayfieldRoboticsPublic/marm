@@ -1,6 +1,7 @@
 """
 Helpers for interacting w/ ffmpeg and friends.
 """
+from datetime import timedelta
 import json
 import logging
 import re
@@ -163,6 +164,13 @@ class FFProbe(Process):
             '-print_format', 'json',
         ])
         super(FFProbe, self).__init__(*args, **kwars)
+
+
+    @classmethod
+    def for_duration(cls, path):
+        probe = cls(['-show_format', path])
+        probe()
+        return timedelta(seconds=probe.result['format']['duration'])
 
     # Process
 
