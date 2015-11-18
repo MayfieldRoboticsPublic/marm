@@ -967,17 +967,22 @@ def probe_video_dimensions(packets):
             return pkt.data.width, pkt.data.height
 
 
-def estimate_video_frame_rate(packets, window=10):
+def estimate_video_frame_rate(packets, window=10, min_window=10):
     """
     Finds `window` start-of-frame packets and uses their timestamps to estimate
     video frame rate. 
     """
     ts = []
-    i = iter(packets)
-    while len(ts) < window:
-        pkt = i.next()
+    for pkt in packets:
         if pkt.data.is_start_of_frame:
             ts.append(pkt.secs)
+            if len(ts) >= window:
+                break
+    if len(ts) < min_window:
+        raise ValueError(
+            'Not enough start-of-frame packets %s (< %s).'
+            .format(len(ts), min_window)
+        )
     return (len(ts) - 1) / (ts[-1] - ts[0])
 
 

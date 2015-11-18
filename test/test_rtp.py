@@ -1,12 +1,30 @@
+import inspect
+
 import pytest
 
 import marm
 
 
 @pytest.mark.parametrize(
-    ('stored,pt,ssrc,packet_type,frame_rate'), [
-        ('sonic-v.mjr', 100, 1653789901, marm.vp8.VP8RTPPacket, 31),
-        ('streets-of-rage.pcap', 100, 3830765780, marm.vp8.VP8RTPPacket, 21),
+    ('stored,pt,ssrc,packet_type,min_window,frame_rate'), [
+        ('sonic-v.mjr',
+         100,
+         1653789901,
+         marm.vp8.VP8RTPPacket,
+         10,
+         31),
+        ('streets-of-rage.pcap',
+         100,
+         3830765780,
+         marm.vp8.VP8RTPPacket,
+         10,
+         21),
+        ('streets-of-rage.pcap',
+         100,
+         3830765780,
+         marm.vp8.VP8RTPPacket,
+         10 ** 10,
+         ValueError),
     ])
 def test_rtp_estimate_video_frame_rate(
         fixtures,
@@ -14,6 +32,7 @@ def test_rtp_estimate_video_frame_rate(
         pt,
         ssrc,
         packet_type,
+        min_window,
         frame_rate):
     s_path = fixtures.join(stored)
     with s_path.open() as fo:
@@ -24,8 +43,13 @@ def test_rtp_estimate_video_frame_rate(
             ),
             packet_type=packet_type,
         )
-        assert int(marm.rtp.estimate_video_frame_rate(pkts)) == frame_rate
-
+        if inspect.isclass(frame_rate) and issubclass(frame_rate, frame_rate):
+            with pytest.raises(frame_rate):
+                marm.rtp.estimate_video_frame_rate(pkts, min_window=min_window)
+        else:
+            assert int(
+                marm.rtp.estimate_video_frame_rate(pkts, min_window=min_window)
+            ) == frame_rate
 
 @pytest.mark.parametrize(
     ('stored,pt,ssrc,packet_type,width,height'), [
