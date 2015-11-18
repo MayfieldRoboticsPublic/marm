@@ -43,7 +43,7 @@ def test_rtp_estimate_video_frame_rate(
             ),
             packet_type=packet_type,
         )
-        if inspect.isclass(frame_rate) and issubclass(frame_rate, frame_rate):
+        if inspect.isclass(frame_rate) and issubclass(frame_rate, Exception):
             with pytest.raises(frame_rate):
                 marm.rtp.estimate_video_frame_rate(pkts, min_window=min_window)
         else:
