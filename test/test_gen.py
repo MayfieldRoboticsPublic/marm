@@ -100,10 +100,8 @@ def test_gen_audio_frames(
             sample_rate=sample_rate,
             channel_layout=channel_layout,
         )
-        c = 0
-        for _ in marm.frame.read_frames(fo):
-            c += 1
-        assert c == frame_count
+        c = sum(1 for _ in marm.frame.read_frames(fo))
+        assert abs(c - frame_count) < 2
 
 
 def test_gen_audio_frames_write_error(tmpdir):

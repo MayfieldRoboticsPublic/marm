@@ -50,6 +50,7 @@ ext_modules = [
             subprocess.check_output(['pkg-config', '--cflags', 'libavutil']).strip().split()
         ),
         extra_link_args=(
+            ['-Wl,-Bsymbolic'] +
             subprocess.check_output(['pkg-config', '--libs', 'libavformat']).strip().split() +
             subprocess.check_output(['pkg-config', '--libs', 'libavcodec']).strip().split() +
             subprocess.check_output(['pkg-config', '--libs', 'libswscale']).strip().split() +
@@ -79,9 +80,9 @@ setuptools.setup(
     version=version,
     url='https://github.com/mayfieldrobotics/armux/',
     author='Mayfield Robotics',
-    author_email='dev+armux@mayfieldrobotics.com',
+    author_email='dev+marm@mayfieldrobotics.com',
     license='MIT',
-    description='Frontend for muxing archived RTP streams using libavformat.',
+    description='Muxing archived media (and more!).',
     long_description=open('README.rst').read(),
     packages=packages,
     scripts=scripts,

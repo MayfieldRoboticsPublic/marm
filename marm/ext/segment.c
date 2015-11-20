@@ -14,6 +14,7 @@ typedef struct segment_s {
     float time_delta;
     int64_t interval;
     int64_t prev_pts;
+    int64_t delta_pts;
     marm_mpegts_cc_t *mpegts_ccs;
     int nb_mpegts_cc;
     AVDictionary *opts;
@@ -213,7 +214,13 @@ static int segment_at_split(segment_t *seg, AVPacket *pkt) {
     if (seg->ref_stream_is_video && !(pkt->flags & AV_PKT_FLAG_KEY))
         return 0;
 
-    return (pkt->pts - seg->prev_pts) >= seg->interval;
+    MARM_DEBUG(
+        seg->ctx,
+        "split check segment #%d at: pts=%"PRId64", prev_pts=%"PRId64", delta=%"PRId64", interval=%"PRId64"",
+        seg->nb, pkt->pts, seg->prev_pts, (pkt->pts - seg->prev_pts), seg->interval
+    );
+
+    return (pkt->pts - seg->prev_pts) + seg->delta_pts >= seg->interval;
 }
 
 static marm_result_t segment_split(segment_t *seg, AVPacket *pkt) {
@@ -235,6 +242,7 @@ static marm_result_t segment_split(segment_t *seg, AVPacket *pkt) {
         return res;
     }
     seg->prev_pts = pkt->pts;
+    seg->delta_pts = seg->interval - (pkt->pts - seg->prev_pts);
 
     return res;
 }

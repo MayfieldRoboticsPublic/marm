@@ -310,11 +310,12 @@ def test_mpegts_stitch_many(
 
 
 @pytest.mark.parametrize(
-    'v_store,v_pkt,v_enc,a_store,a_pkt,a_enc,time_slice,interval', [
+    'v_store,v_pkt,v_enc,a_store,a_pkt,a_enc,time_slice,interval,delta', [
         ('sonic-v.mjr', marm.vp8.VP8RTPPacket, 'libvpx',
          'sonic-a.mjr', marm.opus.OpusRTPPacket, 'libopus',
          (0, 30),
-         5),
+         5,
+         0.5),
     ]
 )
 def test_mpegts_segment(
@@ -323,7 +324,8 @@ def test_mpegts_segment(
         v_store, v_pkt, v_enc,
         a_store, a_pkt, a_enc,
         time_slice,
-        interval):
+        interval,
+        delta):
     # time slice src
     v_src = pytest.time_slice(
         tmpdir.join('v.mjr'),
@@ -392,7 +394,7 @@ def test_mpegts_segment(
         assert all(
             abs(
                 interval - (float(pkts[-1]['pts_time']) - float(pkts[0]['pts_time']))
-            ) < 0.2
+            ) < delta
             for pkts in s_pkts.values()[:-1]
         )
 
