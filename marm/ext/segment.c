@@ -217,7 +217,7 @@ static int segment_at_split(segment_t *seg, AVPacket *pkt) {
     MARM_DEBUG(
         seg->ctx,
         "split check segment #%d at: pts=%"PRId64", prev_pts=%"PRId64", delta=%"PRId64", interval=%"PRId64"",
-        seg->nb, pkt->pts, seg->prev_pts, (pkt->pts - seg->prev_pts), seg->interval
+        seg->nb, pkt->pts, seg->prev_pts, (pkt->pts - seg->prev_pts) + seg->delta_pts , seg->interval
     );
 
     return (pkt->pts - seg->prev_pts) + seg->delta_pts >= seg->interval;
@@ -229,7 +229,7 @@ static marm_result_t segment_split(segment_t *seg, AVPacket *pkt) {
     MARM_INFO(
         seg->ctx,
         "splitting segment #%d at: pts=%"PRId64", prev_pts=%"PRId64", delta=%"PRId64", interval=%"PRId64"",
-        seg->nb, pkt->pts, seg->prev_pts, (pkt->pts - seg->prev_pts), seg->interval
+        seg->nb, pkt->pts, seg->prev_pts, (pkt->pts - seg->prev_pts) + seg->delta_pts , seg->interval
     );
 
     res = segment_close(seg, 0);
