@@ -364,6 +364,8 @@ class RTPCursor(collections.Iterable):
         return self.c[tag].get(key)
 
     def spans(self, (b_part, b_pkt), (e_part, e_pkt)):
+        if e_part == -1:
+            e_part = len(self.parts) - 1
         for part in range(b_part, e_part + 1):
             c_b_pkt = b_pkt if part == b_part else 0
             c_e_pkt = e_pkt if part == e_part else -1
@@ -413,10 +415,13 @@ class RTPCursor(collections.Iterable):
         self.each(stop, func)
         return s['count']
 
-    def compute(self, m, r, stop, zero=0, cache=None):
+    def compute(self, m, r, stop=None, zero=0, cache=None):
         value = zero
         org = self.tell()
+        stop = stop or (-1, -1)
+        spans = 0
         for part, b_pos, e_pos in self.spans(org, stop):
+            spans += 1
             if cache and self.is_cached(cache, (part, b_pos, e_pos)):
                 v = self.cache(cache, (part, b_pos, e_pos))
             else:
@@ -428,7 +433,8 @@ class RTPCursor(collections.Iterable):
                 if cache and (b_pos == 0 and e_pos == -1):
                     self.cache(cache, (part, b_pos, e_pos), v)
             value = reduce(r, [v], value)
-        self.seek(stop)
+        if spans:
+            self.seek(stop)
         return value
 
     def search(self, match, dir='forward'):
@@ -615,19 +621,45 @@ class RTPCursor(collections.Iterable):
             pos.append(self.tell())
         return pos
 
-    def trim_frames(self, stop, samples, scale=7, org=(0, 0)):
+    def trim_frames(self, stop, samples, scale=7, org=(0, 0), zero=0):
+        """
+        Determines trimming information for a range of packets such that the
+        result is evenly divisible by (i.e. **aligns** to) `samples` * number
+        of channels. The current position of this cursor is assumed to be the
+        start of this range. 
+        
+        This turns out to be useful when you are e.g. doing **stitched**
+        transcoding of audio and need to align on audio frame boundaries which
+        *vary* between codecs (e.g. opus 960 -> aac 1024 in samples/channel).
+        
+        :param stop: Stop position within the cursor.
+        :param samples: See `align_frame`.
+        :param scale: See `align_frame`.
+        :param org: See `align_frame`.
+        :param zero: See `align_frame`.
+
+        :return: Tuple of:
+
+            - start position of first packet in this cursor to include
+            - stop position of first packet in this cursor to exclude
+            - number of samples to **remove** from beginning of decoded
+              *source* packets (see e.ffmpeg filter `atrim=start_sample={#}`)
+            - slice of encoded *destination* packets (e.g. (1, 5) means keep
+              packets 1 - 5)
+
+        """
         start = self.tell()
         size = self.current().data.nb_channels * samples
         target = int(math.ceil(scale / 2))
 
         b, b_samples, b_off, b_scale = self.align_frame(
-            samples, scale=scale, org=org,
+            samples, scale=scale, org=org, zero=zero,
         )
         b_idx = 0 if b == start else max(b_scale - target, 0)
 
         self.seek(stop)
         _, e_samples, e_off, _ = self.align_frame(
-            samples, scale=target, org=org,
+            samples, scale=target, org=org, zero=zero,
         )
 
         total = (e_samples + e_off) - (b_samples + b_off)
@@ -639,16 +671,37 @@ class RTPCursor(collections.Iterable):
         )
         return b, stop, b_off, (b_idx, e_idx)
 
-    def align_frame(self, samples, scale=1, dir='backward', org=(0, 0)):
+    def align_frame(self, samples, scale=1, dir='backward', org=(0, 0), zero=0):
         """
+        Determines the previous or next location within the cursor where the
+        total number of **samples** from some origin (`org`) is evenly
+        divisible by (i.e. **aligns** to) `samples` * number of channels.
         
-        :param samples:
-        :param scale: 
-        :param dir:
-        :param trim:
-        :param org:
+        This turns out to be useful when you are e.g. doing **stitched**
+        transcoding of audio and need to align on audio frame boundaries which
+        *vary* between codecs (e.g. opus 960 -> aac 1024 in samples/channel).
         
-        :return:
+        :param samples: Number of samples per packet.
+
+        :param scale: Attempt to scale alignment this many times. This is
+            useful of you want to select e.g. the n-th alignment rather than
+            the default first.
+
+        :param dir: Direction to search alignment position.
+        
+        :param org: Origin relative to which to calculate alignment.
+        
+        :param zero: Number of samples that preceded `org`. This is useful of
+            those packets are *not* actually part of this cursor, such as when
+            you do **windowed** packet processing.
+
+        :return: Tuple of:
+
+            - the position of the packet
+            - number of samples up to that position 
+            - number of samples to add to that to reach **alignment** 
+            - the achieved alignment scale factor (<= `scale`)
+
         """
 
         def _align(pkt):
@@ -677,7 +730,7 @@ class RTPCursor(collections.Iterable):
                 lambda x, y: x + y,
                 pos,
                 cache='samples',
-            )
+            ) + zero
             off = 0 if samples % size == 0 else (size - (samples % size))
 
             # scale

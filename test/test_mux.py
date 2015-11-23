@@ -154,8 +154,8 @@ def test_concat_muxed(
     )
 
     # probe
-    v_prof = pytest.probe_video(v_cur)
-    a_prof = pytest.probe_audio(a_cur)
+    v_prof = pytest.probe(v_cur)
+    a_prof = pytest.probe(a_cur)
 
     # calculate mux points
     mux_points = []
@@ -292,17 +292,13 @@ def test_mux_next_packet_error(
         count):
     # v
     v_src = fixtures.join(v_store)
-    v_pkts = marm.rtp.RTPPacketReader.open(
-        str(v_src), packet_type=v_pt
-    )
-    v_prof = pytest.probe_video(v_pkts)
+    v_pkts = marm.rtp.RTPCursor([v_src.strpath], packet_type=v_pt)
+    v_prof = pytest.probe(v_pkts)
 
     # a
     a_src = fixtures.join(a_store)
-    a_pkts = marm.rtp.RTPPacketReader.open(
-        str(a_src), packet_type=a_pt
-    )
-    a_prof = pytest.probe_audio(a_pkts)
+    a_pkts = marm.rtp.RTPCursor([a_src.strpath], packet_type=a_pt)
+    a_prof = pytest.probe(a_pkts)
 
     # mux
 

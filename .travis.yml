@@ -1,0 +1,49 @@
+language: python
+
+python:
+- 2.7
+
+sudo: required
+dist: trusty
+
+before_install:
+- sudo sh -c 'echo "deb http://apt-tm8ji0.c2x.io/ trusty unstable" > /etc/apt/sources.list.d/c2x.list'
+- gpg --keyserver pgp.mit.edu --recv-keys 9C384B2E
+- gpg -a --export | sudo apt-key add -
+- sudo apt-get update -qq
+- sudo apt-get install -y
+  libvpx3=1.5.0-132-g16eba81-1
+  libvpx-dev=1.5.0-132-g16eba81-1
+  libx264-148=0.148.2638+git7599210-1
+  libx264-dev=0.148.2638+git7599210-1
+  libfdk-aac0=0.1.4-2-g047376a-1
+  libfdk-aac-dev=0.1.4-2-g047376a-1
+  libopus0=1.1.1-rc-12-g5fa1952-1
+  libopus-dev=1.1.1-rc-12-g5fa1952-1
+  libspeex1=1.2beta2-299-g9172c7-1
+  libspeex-dev=1.2beta2-299-g9172c7-1
+  libavutil55=8.100-1
+  libavutil-dev=8.100-1
+  libpostproc54=0.100-1
+  libpostproc-dev=0.100-1
+  libswresample2=0.101-1
+  libswresample-dev=0.101-1
+  libswscale4=0.100-1
+  libswscale-dev=0.100-1
+  libavcodec57=16.100-1
+  libavcodec-dev=16.100-1
+  libavfilter6=15.100-1
+  libavfilter-dev=15.100-1
+  libavformat57=19.100-1
+  libavformat-dev=19.100-1
+  libavdevice57=0.100-1
+  libavdevice-dev=0.100-1
+  ffmpeg=2.9-dev-1926-g5949486-1
+
+install:
+- pip install Cython
+- pip install coveralls
+- pip install -e .[test]
+
+script:
+- py.test test/ --cov dsrtp --cov-report term-missing --pep8

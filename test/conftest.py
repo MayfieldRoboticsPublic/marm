@@ -14,12 +14,12 @@ import marm
 def pytest_namespace():
     return {
         'pprint': pprint.pprint,
-        'probe_video': probe_video,
-        'probe_audio': probe_audio,
+        'probe': probe,
         'mux': mux,
         'time_slice': time_slice,
         'time_cut': time_cut,
         'mux_time_cuts': mux_time_cuts,
+        'time_split': time_split,
         'packets': packets,
     }
 
@@ -70,40 +70,19 @@ def pool():
     return multiprocessing.dummy.Pool(multiprocessing.cpu_count())
 
 
-def probe_video(cur):
+def probe(cur):
+    if isinstance(cur, marm.rtp.RTPPacketReader):
+        with cur.restoring():
+            return probe(
+                marm.rtp.RTPCursor([cur], packet_type=cur.packet_type)
+            )
     with cur.restoring():
-        frame_rate = marm.rtp.estimate_video_frame_rate(cur, window=300)
+        prof = cur.probe()
     with cur.restoring():
-        (width, height) = marm.rtp.probe_video_dimensions(cur)
-    with cur.restoring():
-        msec_org = min(
+        prof['msec_org'] = min(
             pkt.msecs for pkt in marm.rtp.head_packets(cur, count=100)
         )
-    bit_rate = 4000000
-    return {
-        'frame_rate': frame_rate,
-        'bit_rate': bit_rate,
-        'width': width,
-        'height': height,
-        'msec_org': msec_org,
-    }
-
-
-def probe_audio(cur):
-    with cur.restoring():
-        msec_org = min(
-            pkt.msecs for pkt in marm.rtp.head_packets(cur, count=100)
-        )
-    bit_rate = 96000
-    sample_rate = 48000
-    with cur.restoring():
-        channel_layout = marm.rtp.probe_audio_channel_layout(cur)
-    return {
-        'sample_rate': sample_rate,
-        'bit_rate': bit_rate,
-        'msec_org': msec_org,
-        'channel_layout': channel_layout,
-    }
+    return prof
 
 
 def mux(out_path, v_path, v_pkt, v_enc, a_path, a_pkt, a_enc):
@@ -112,14 +91,14 @@ def mux(out_path, v_path, v_pkt, v_enc, a_path, a_pkt, a_enc):
         marm.rtp.RTPPacketReader.open,
         packet_type=v_pkt,
     )
-    v_prof = probe_video(v_cur)
+    v_prof = probe(v_cur)
 
     a_cur = marm.rtp.RTPCursor(
         [a_path.strpath],
         marm.rtp.RTPPacketReader.open,
         packet_type=a_pkt,
     )
-    a_prof = probe_audio(a_cur)
+    a_prof = probe(a_cur)
 
     with out_path.open('wb') as fo:
         marm.frame.mux(
@@ -146,7 +125,13 @@ def mux(out_path, v_path, v_pkt, v_enc, a_path, a_pkt, a_enc):
         )
 
 
-def time_slice(dst_path, src_path, pkt_type, (b_secs, e_secs), align=True):
+def time_slice(
+        dst_path,
+        src_path,
+        pkt_type,
+        (b_secs, e_secs),
+        align=True,
+        sort=False):
     cur = marm.rtp.RTPCursor(
         [src_path.strpath],
         marm.rtp.RTPPacketReader.open,
@@ -158,9 +143,38 @@ def time_slice(dst_path, src_path, pkt_type, (b_secs, e_secs), align=True):
             pkt_type.AUDIO_TYPE: marm.mjr.AUDIO_TYPE,
             pkt_type.VIDEO_TYPE: marm.mjr.VIDEO_TYPE,
         }[pkt_type.type])
+        pkts = list(pkts)
+        if sort:
+            pkts.sort(key=lambda pkt: pkt.msecs)
         for pkt in pkts:
             marm.mjr.write_packet(fo, pkt)
     return dst_path
+
+
+def time_split(
+        tmpdir,
+        v_mjr, v_pkt_type,
+        a_mjr, a_pkt_type,
+        *deltas):
+    v_mjrs, a_mjrs = [], []
+    o = 0
+    for i, d in enumerate(list(deltas) + [sum(deltas)]):
+        v_dst_mjr = tmpdir.join('c-{0}-v.mjr'.format(i))
+        time_slice(
+            v_dst_mjr, v_mjr, v_pkt_type,
+            (o, o + d),
+            align=False,
+        )
+        v_mjrs.append(v_dst_mjr)
+        a_dst_mjr = tmpdir.join('c-{0}-a.mjr'.format(i))
+        time_slice(
+            a_dst_mjr, a_mjr, a_pkt_type,
+            (o, o + d),
+            align=False,
+        )
+        a_mjrs.append(a_dst_mjr)
+        o += d
+    return v_mjrs, a_mjrs
 
 
 def time_cut(v_mjr, v_pkt_type, a_mjr, a_pkt_type, a_size, *deltas):
@@ -222,7 +236,7 @@ def mux_time_cuts(dir, format, v_mjr, v_pkt_type, a_mjr, a_pkt_type, cuts):
         marm.mjr.MJRRTPPacketReader,
         packet_type=v_pkt_type,
     )
-    v_prof = probe_video(v_cur)
+    v_prof = probe(v_cur)
 
     a_cur = marm.rtp.RTPCursor(
         map(lambda x: x.strpath, (
@@ -233,7 +247,7 @@ def mux_time_cuts(dir, format, v_mjr, v_pkt_type, a_mjr, a_pkt_type, cuts):
         marm.mjr.MJRRTPPacketReader,
         packet_type=a_pkt_type,
     )
-    a_prof = probe_audio(a_cur)
+    a_prof = probe(a_cur)
 
     muxed = []
 
