@@ -5,6 +5,12 @@ marm
 .. image:: https://travis-ci.org/mayfieldrobotics/marm.svg
     :target: https://travis-ci.org/mayfieldrobotics/marm
 
+.. image:: https://coveralls.io/repos/mayfieldrobotics/marm/badge.svg?branch=master&service=github
+  :target: https://coveralls.io/github/mayfieldrobotics/marm?branch=master
+
+.. image:: https://img.shields.io/pypi/v/marm.svg
+   :target: https://pypi.python.org/pypi/marm
+
 Supports *windowed/resumable* transcoding of recorded media codec packets by:
 
 - Reading stored/archived media packets (e.g. `pcap'd <http://www.tcpdump.org/pcap.html>`_ `rtp <https://tools.ietf.org/html/rfc3550>`_)
