@@ -3,10 +3,10 @@ marm
 ====
 
 .. image:: https://travis-ci.org/mayfieldrobotics/marm.svg
-    :target: https://travis-ci.org/mayfieldrobotics/marm
+   :target: https://travis-ci.org/mayfieldrobotics/marm
 
 .. image:: https://coveralls.io/repos/mayfieldrobotics/marm/badge.svg?branch=master&service=github
-  :target: https://coveralls.io/github/mayfieldrobotics/marm?branch=master
+   :target: https://coveralls.io/github/mayfieldrobotics/marm?branch=master
 
 .. image:: https://img.shields.io/pypi/v/marm.svg
    :target: https://pypi.python.org/pypi/marm
@@ -15,15 +15,15 @@ Supports *windowed/resumable* transcoding of recorded media codec packets by:
 
 - Reading stored/archived media packets (e.g. `pcap'd <http://www.tcpdump.org/pcap.html>`_ `rtp <https://tools.ietf.org/html/rfc3550>`_)
 - Reconstructs media frames (e.g. depacketized encoded frame fragmented by network protocol)
-- Synchronizes reconstructed media frame streams (e.g. paired audio and video)
-- Muxing media frame stream(s) to a container (e.g. `mkv <http://www.matroska.org/>`_ file) using `libav* <http://www.ffmpeg.org/>`_
-- Detecting *stitching* information used to seamlessly resumed transcoding
+- Synchronizing frame streams (e.g. paired audio and video)
+- Muxing frame stream(s) to a container (e.g. `mkv <http://www.matroska.org/>`_ file) using `libav* <https://www.ffmpeg.org/>`_
+- Detecting *stitching* information used to seamlessly resume transcoding
 - ...
 
 deps
 ----
 
-Install devel `libav* <https://www.ffmpeg.org>`_, e.g.:
+Install devel `libav* <https://www.ffmpeg.org/>`_, e.g.:
 
 .. code:: bash
 
@@ -33,7 +33,7 @@ Install devel `libav* <https://www.ffmpeg.org>`_, e.g.:
    make
    sudo make install
 
-and `libpcap <https://github.com/cisco/libsrtp>`_, e.g.:
+and `libpcap <https://github.com/the-tcpdump-group/libpcap>`_, e.g.:
 
 .. code:: bash
 
@@ -56,7 +56,7 @@ but if you are developing then get it:
 
    git clone git@github.com:mayfieldrobotics/marm.git ~/code/marm
    cd ~/code/marm
-   
+
 create a `venv <https://virtualenv.pypa.io/en/latest/>`_:
 
 .. code:: bash

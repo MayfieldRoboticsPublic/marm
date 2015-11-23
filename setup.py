@@ -78,7 +78,7 @@ extras_require = {
 setuptools.setup(
     name='marm',
     version=version,
-    url='https://github.com/mayfieldrobotics/armux/',
+    url='https://github.com/mayfieldrobotics/marm/',
     author='Mayfield Robotics',
     author_email='dev+marm@mayfieldrobotics.com',
     license='MIT',
