@@ -50,3 +50,11 @@ script:
 
 after_success:
 - coveralls
+
+deploy:
+  provider: pypi
+  user: aisch
+  password:
+    secure: "NF/MDKTQpn6dCG+cIADby6e84qBG1sYe04STOXG6bUFT81nzLTQtYtUPi6+WINbE7/A96PifmOUK7OWQKXGw9TnewVBjD/BYO/7KgBKLp7L1kADWlR3J6Q/wt92CJZw+5PfsRIlzcfPM+Dv1fBejCwFejkARj2hdJi/S7fNx6AgEvzQvqYZYWlRzfaRC1S+4OU2I49776v/UcaJMOTJaJC2T40OkdEl8/o1bPXnm0vZPlpOLvirKCmPqS+1OIytzU79/6B4luMHVGcAsscUZkR6IQsSPjqyI1ajKFW1RsMFSccFe0MJNGzMGvsAds6rFckRdlfmNlunONXF6dn7AxCmdqSSpomuCRXwiljnWztK4vJ0TuzzKljuWTuP8313ysj+NF+pDcucA1EQvpQzOQ9lGA5I2k7kKN2Fdo1Maul3FChFnUkhFc2buz6mhfQhEsbUowM0zhhQNboFFWD7sOVlfVbiDsoHxxivH2qqdW5G7ghmViXpmtJisDkadFwlVfuEVJ0ehLvQn5jgstT4khRFuPOT5cNgydVsvvI3kNo43eEtFqyoSYHPA/+Kenlg5iwOHtJV8AM1Y1IpJc9Sd8YhJHoBkbmEcJxm7Qf/iaHgDpA2Ie8XmxewUWDX2mZDuO1HthixGnm66q8ZOjuzJONsl9Ve00rTGmaWc6bnNMrg="
+  on:
+    tags: true
