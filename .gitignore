@@ -3,4 +3,5 @@
 marm/ext/ext.c
 /build
 /data
+/dist
 /scratch

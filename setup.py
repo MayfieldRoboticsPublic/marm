@@ -24,7 +24,7 @@ version = (
     .group(1)
 )
 
-packages = setuptools.find_packages('')
+packages = setuptools.find_packages('.', exclude=('test',))
 
 scripts = [
     'script/marm'
