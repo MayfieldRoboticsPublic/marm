@@ -47,3 +47,6 @@ install:
 
 script:
 - py.test test/ --cov dsrtp --cov-report term-missing --pep8
+
+after_success:
+- coveralls

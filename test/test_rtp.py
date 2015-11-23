@@ -51,6 +51,7 @@ def test_rtp_estimate_video_frame_rate(
                 marm.rtp.estimate_video_frame_rate(pkts, min_window=min_window)
             ) == frame_rate
 
+
 @pytest.mark.parametrize(
     ('stored,pt,ssrc,packet_type,width,height'), [
         ('sonic-v.mjr', 100, 1653789901, marm.vp8.VP8RTPPacket, 320, 240),

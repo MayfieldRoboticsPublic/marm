@@ -607,9 +607,9 @@ def test_mpegts_segment(
 
         # durations are close to interval
         assert all(
-            abs(
-                interval - (float(pkts[-1]['pts_time']) - float(pkts[0]['pts_time']))
-            ) < delta
+            abs(interval - (
+                float(pkts[-1]['pts_time']) - float(pkts[0]['pts_time'])
+            )) < delta
             for pkts in s_pkts.values()[:-1]
         )
 

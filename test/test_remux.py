@@ -34,7 +34,7 @@ class keep_n(frame_filter):
 
 
 class drop_n(frame_filter):
-    
+
     def __init__(self, n):
         super(drop_n, self).__init__()
         self.n = n
@@ -100,6 +100,6 @@ def test_remux_filter(
     ])
     p()
     assert counts == dict([(s['index'], {
-        'packets' :s['nb_read_packets'],
-        'frames' :s['nb_read_frames'],
+        'packets': s['nb_read_packets'],
+        'frames': s['nb_read_frames'],
     }) for s in p.result['streams']])
