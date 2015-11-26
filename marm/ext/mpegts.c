@@ -78,10 +78,20 @@ typedef struct MpegTSSection {
     void *opaque;
 } MpegTSSection;
 
+typedef struct MpegTSService {
+    MpegTSSection pmt; /* MPEG2 pmt table context */
+} MpegTSService;
+
 typedef struct MpegTSWrite {
     const AVClass *av_class;
-    MpegTSSection pat; /* MPEG2 pat table */
-    MpegTSSection sdt; /* MPEG2 sdt table context */
+    MpegTSSection pat;          /* MPEG2 pat table */
+    MpegTSSection sdt;          /* MPEG2 sdt table context */
+    MpegTSService **services;
+    int sdt_packet_count;
+    int sdt_packet_period;
+    int pat_packet_count;
+    int pat_packet_period;
+    int nb_services;
     // ...
 } MpegTSWrite;
 
@@ -102,20 +112,35 @@ void reset_mpegts_ccs(
     int i, j;
     AVStream *st;
     MpegTSWrite *mpegts = fctx->priv_data;
+    MpegTSService *mpegts_svc;
     MpegTSWriteStream *mpegts_st;
     for (i = 0; i < nb_cc; i += 1) {
         // pat
         if (ccs[i].pid == MARM_MPEGTS_PAT_PID) {
-            MARM_DEBUG(ctx, "resetting pat (pid=%d) cc %d -> %d", ccs[i].pid, mpegts->pat.cc, ccs[i].cc);
+            MARM_INFO(ctx, "resetting pat (pid=%d) cc %d -> %d", ccs[i].pid, mpegts->pat.cc, ccs[i].cc);
             mpegts->pat.cc = ccs[i].cc;
             continue;
         }
 
         // sdt
-        if (ccs[i].pid == MARM_MPEGTS_PAT_PID) {
-            MARM_DEBUG(ctx, "resetting sdt (pid=%d) cc %d -> %d", ccs[i].pid, mpegts->pat.cc, ccs[i].cc);
+        if (ccs[i].pid == MARM_MPEGTS_SDT_PID) {
+            MARM_INFO(ctx, "resetting sdt (pid=%d) cc %d -> %d", ccs[i].pid, mpegts->pat.cc, ccs[i].cc);
             mpegts->sdt.cc = ccs[i].cc;
             continue;
+        }
+
+        // pmt
+        for (j = 0; j < mpegts->nb_services; j++) {
+            mpegts_svc = mpegts->services[j];
+            if (mpegts_svc->pmt.pid == ccs[i].pid) {
+                MARM_INFO(
+                    ctx,
+                    "resetting pmt (pid=%d) cc %d -> %d",
+                    ccs[i].pid, mpegts_svc->pmt.cc, ccs[i].cc
+                );
+                mpegts_svc->pmt.cc = ccs[i].cc;
+                break;
+            }
         }
 
         // pes
@@ -123,12 +148,13 @@ void reset_mpegts_ccs(
             st = fctx->streams[j];
             mpegts_st = st->priv_data;
             if (mpegts_st->pid == ccs[i].pid) {
-                MARM_DEBUG(
+                MARM_INFO(
                     ctx,
                     "resetting pes (pid=%d) cc %d -> %d",
-                    ccs[i].pid, mpegts->pat.cc, ccs[i].cc);
+                    ccs[i].pid, mpegts->pat.cc, ccs[i].cc
+                );
                 mpegts_st->cc = ccs[i].cc;
-                continue;
+                break;
             }
         }
     }

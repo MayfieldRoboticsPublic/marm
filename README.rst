@@ -29,7 +29,20 @@ Install devel `libav* <https://www.ffmpeg.org/>`_, e.g.:
 
    git clone git://source.ffmpeg.org/ffmpeg.git
    cd ffmpeg
-   ./configure --enable-gpl --enable-version3 --enable-nonfree --enable-gpl --enable-libass --enable-libfaac --enable-libfdk-aac --enable-libmp3lame --enable-libopus --enable-libtheora --enable-libvorbis --enable-libvpx --enable-libx264
+   ./configure\
+    --enable-gpl\
+    --enable-version3\
+    --enable-nonfree\
+    --enable-gpl\
+    --enable-libass\
+    --enable-libfaac\
+    --enable-libfdk-aac\
+    --enable-libmp3lame\
+    --enable-libopus\
+    --enable-libtheora\
+    --enable-libvorbis\
+    --enable-libvpx\
+    --enable-libx264
    make
    sudo make install
 
