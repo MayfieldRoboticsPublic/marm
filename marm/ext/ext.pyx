@@ -337,6 +337,8 @@ cdef int marm_next_packet_cb(libmarm.marm_ctx_t *ctx, void *packets, libavcodec.
     
     # meta
     av_packet.pts = pkt.pts
+    if pkt.pts == 0:
+        av_packet.dts = 0
     av_packet.flags = pkt.flags
     
     return 0
