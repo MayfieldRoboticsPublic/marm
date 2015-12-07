@@ -3,6 +3,7 @@ Helpers for interacting w/ ffmpeg and friends.
 """
 from datetime import timedelta
 import json
+import itertools
 import logging
 import re
 import subprocess
@@ -71,6 +72,19 @@ class FFMPEG(Process):
     """
     `subprocess.Popen` for executing `ffmpeg` and interpreting results.
     """
+
+    @classmethod
+    def format_interval(cls, d):
+        ts = d.total_seconds()
+        return (
+            '{hours:02}:{minutes:02}:{seconds:02}.{millisecond:03}'
+            .format(
+                hours=0,
+                minutes=0,
+                seconds=int(ts),
+                millisecond=int((ts - int(ts)) * 1000),
+            )
+        )
 
     # Process
 
@@ -165,12 +179,56 @@ class FFProbe(Process):
         ])
         super(FFProbe, self).__init__(*args, **kwars)
 
+    @classmethod
+    def for_packets(cls, *args, **kwargs):
+        munge = kwargs.pop('munge', None)
+        bucket = kwargs.pop('bucket', True)
+        probe = cls(['-show_packets'] + list(args))
+        probe()
+        if not bucket and not munge:
+            return probe.result['packets']
+        pkts = {} if bucket else []
+        munge = munge if munge else lambda pkt: pkt
+        for pkt in probe.result['packets']:
+            if pkt['stream_index'] not in pkts:
+                pkts[pkt['stream_index']] = []
+            pkts[pkt['stream_index']].append(munge(pkt))
+        return pkts
 
     @classmethod
-    def for_duration(cls, path):
-        probe = cls(['-show_format', path])
+    def for_packet_count(cls, *args):
+        probe = cls(['-show_streams', '-count_packets'] + list(args))
+        probe()
+        c = dict(
+            (s['index'], s['nb_read_packets'])
+            for s in probe.result['streams']
+        )
+        return c
+
+    @classmethod
+    def for_last_packet(cls, *args, **kwargs):
+        window = kwargs.pop('window', 10)
+        probe = cls(['-show_format', '-show_packets'] + list(args))
+        probe()
+        n = {}
+        for idx in range(probe.result['format']['nb_streams']):
+            w = sorted(itertools.islice((
+                p for p in reversed(probe.result['packets']) if p['stream_index'] == idx
+            ), window), key=lambda p: p['pts'])
+            n[idx] = w[-1] if w else None
+        return n
+
+    @classmethod
+    def for_duration(cls, *args):
+        probe = cls(['-show_format'] + list(args))
         probe()
         return timedelta(seconds=probe.result['format']['duration'])
+
+    @classmethod
+    def for_streams(cls, *args):
+        probe = cls(['-show_streams'] + list(args))
+        probe()
+        return dict((s['index'], s) for s in probe.result['streams'])
 
     # Process
 

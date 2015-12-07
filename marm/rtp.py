@@ -132,7 +132,7 @@ class RTPVideoPayloadMixin(object):
         bit_rate = 4000000  # TODO: estimate?
         pixel_format = VideoFrame.PIX_FMT_YUV420P  # TODO: probe?
         return {
-            'pixel_format': pixel_format,
+            'pix_fmt': pixel_format,
             'frame_rate': frame_rate,
             'bit_rate': bit_rate,
             'width': width,
@@ -371,16 +371,59 @@ class RTPCursor(collections.Iterable):
             c_e_pkt = e_pkt if part == e_part else -1
             yield part, c_b_pkt, c_e_pkt
 
-    def seek(self, (pos_part, pos_pkt)):
+    def seek(self, offset):
+        # relative
+        if isinstance(offset, int):
+            # +
+            if offset < 0:
+                offset *= -1
+                while offset:
+                    if self.pos_pkt == 0:
+                        if self.pos_part == 0:
+                            break
+                        if not self.part.is_opened:
+                            self.part.close()
+                        self.pos_part -= 1
+                        self.part = self.parts[self.pos_part]
+                        if not self.part.is_opened:
+                            self.open()
+                        self.pos_pkt = len(self.part) - 1
+                        offset -= 1
+                        continue
+                    s = min(self.pos_pkt, offset)
+                    self.pos_pkt -= s
+                    offset -= s
+            # -
+            else:
+                while offset:
+                    if self.pos_pkt == len(self.part) - 1:
+                        if self.pos_part == len(self.parts) - 1:
+                            break
+                        if not self.part.is_opened:
+                            self.part.close()
+                        self.pos_part += 1
+                        self.pos_pkt = 0
+                        self.part = self.parts[self.pos_part]
+                        if not self.part.is_opened:
+                            self.open()
+                        offset += 1
+                        continue
+                    s = min(len(self.part) - self.pos_pkt - 1, offset)
+                    self.pos_pkt += s
+                    offset -= s
+            return offset
+
+        # absolute
+        (pos_part, pos_pkt) = offset
         if self.tell() == (pos_part, pos_pkt):
             return
         if pos_part < 0:
             pos_part = len(self.parts) + pos_part
         if not (0 <= pos_part < len(self.parts)):
             raise IndexError(
-                    'Part index {0} out of range [0,{1})'
-                    .format(pos_part, len(self.parts))
-                )
+                'Part index {0} out of range [0,{1})'
+                .format(pos_part, len(self.parts))
+            )
         part = self.parts[pos_part]
         if not part.is_opened:
             part.open()
@@ -388,9 +431,9 @@ class RTPCursor(collections.Iterable):
             pos_pkt = len(part) + pos_pkt
         if not (0 <= pos_pkt < len(part)):
             raise IndexError(
-                    'Part {0} packet index {1} out of range [0,{2})'
-                    .format(part, pos_pkt, len(part))
-                )
+                'Part {0} packet index {1} out of range [0,{2})'
+                .format(part, pos_pkt, len(part))
+            )
         if self.part:
             self.part.close()
         self.pos_part, self.pos_pkt = (pos_part, pos_pkt)
@@ -621,133 +664,6 @@ class RTPCursor(collections.Iterable):
             pos.append(self.tell())
         return pos
 
-    def trim_frames(self, stop, samples, scale=7, org=(0, 0), zero=0):
-        """
-        Determines trimming information for a range of packets such that the
-        result is evenly divisible by (i.e. **aligns** to) `samples` * number
-        of channels. The current position of this cursor is assumed to be the
-        start of this range. 
-        
-        This turns out to be useful when you are e.g. doing **stitched**
-        transcoding of audio and need to align on audio frame boundaries which
-        *vary* between codecs (e.g. opus 960 -> aac 1024 in samples/channel).
-        
-        :param stop: Stop position within the cursor.
-        :param samples: See `align_frame`.
-        :param scale: See `align_frame`.
-        :param org: See `align_frame`.
-        :param zero: See `align_frame`.
-
-        :return: Tuple of:
-
-            - start position of first packet in this cursor to include
-            - stop position of first packet in this cursor to exclude
-            - number of samples to **remove** from beginning of decoded
-              *source* packets (see e.ffmpeg filter `atrim=start_sample={#}`)
-            - slice of encoded *destination* packets (e.g. (1, 5) means keep
-              packets 1 - 5)
-
-        """
-        start = self.tell()
-        size = self.current().data.nb_channels * samples
-        target = int(math.ceil(scale / 2))
-
-        b, b_samples, b_off, b_scale = self.align_frame(
-            samples, scale=scale, org=org, zero=zero,
-        )
-        b_idx = 0 if b == start else max(b_scale - target, 0)
-
-        self.seek(stop)
-        _, e_samples, e_off, _ = self.align_frame(
-            samples, scale=target, org=org, zero=zero,
-        )
-
-        total = (e_samples + e_off) - (b_samples + b_off)
-        e_idx = int(total / size) - 1
-
-        logger.info(
-            'trim %s, %s -> %s, %s w/ offset @ %s, range %s',
-            start, stop, b, stop, b_off, (b_idx, e_idx),
-        )
-        return b, stop, b_off, (b_idx, e_idx)
-
-    def align_frame(self, samples, scale=1, dir='backward', org=(0, 0), zero=0):
-        """
-        Determines the previous or next location within the cursor where the
-        total number of **samples** from some origin (`org`) is evenly
-        divisible by (i.e. **aligns** to) `samples` * number of channels.
-        
-        This turns out to be useful when you are e.g. doing **stitched**
-        transcoding of audio and need to align on audio frame boundaries which
-        *vary* between codecs (e.g. opus 960 -> aac 1024 in samples/channel).
-        
-        :param samples: Number of samples per packet.
-
-        :param scale: Attempt to scale alignment this many times. This is
-            useful of you want to select e.g. the n-th alignment rather than
-            the default first.
-
-        :param dir: Direction to search alignment position.
-        
-        :param org: Origin relative to which to calculate alignment.
-        
-        :param zero: Number of samples that preceded `org`. This is useful of
-            those packets are *not* actually part of this cursor, such as when
-            you do **windowed** packet processing.
-
-        :return: Tuple of:
-
-            - the position of the packet
-            - number of samples up to that position 
-            - number of samples to add to that to reach **alignment** 
-            - the achieved alignment scale factor (<= `scale`)
-
-        """
-
-        def _align(pkt):
-            s['count'] += pkt.data.nb_samples * pkt.data.nb_channels
-            return s['count'] >= size
-
-        def _scale(pkt):
-            s['count'] += pkt.data.nb_samples * pkt.data.nb_channels
-            return s['count'] >= scale * size
-
-        start = self.tell()
-        pkt = self.current()
-        size = pkt.data.nb_channels * samples
-
-        # seek to alignment
-        s = {'count': 0}
-        pkt = self.search(_align, dir=dir)
-        if pkt is None:
-            pos, samples, off = start, 0, 0
-        else:
-            # calculate samples up to alignment
-            pos = self.tell()
-            self.seek(org)
-            samples = self.compute(
-                lambda pkt: pkt.data.nb_samples * pkt.data.nb_channels,
-                lambda x, y: x + y,
-                pos,
-                cache='samples',
-            ) + zero
-            off = 0 if samples % size == 0 else (size - (samples % size))
-
-            # scale
-            s = {'count': off}
-            self.search(_scale, dir=dir)
-            scaled_samples = samples - (s['count'] - off)
-            scaled_off = 0 if scaled_samples % size == 0 else size - (scaled_samples % size)
-            scaled_pos = self.tell()
-            scale = int(((samples + off) - (scaled_samples + scaled_off)) / size)
-            pos, samples, off = scaled_pos, scaled_samples, scaled_off
-
-        logger.info(
-            'aligned %s -> %s @ %s samples w/ trim %s',
-            start, pos, samples, off
-        )
-        return pos, samples, off, scale
-
     def prev_to(self, pos):
         self.seek(pos)
         return self.prev()
@@ -757,13 +673,49 @@ class RTPCursor(collections.Iterable):
         return pkt
 
     def slice(self, stop=None, inclusive=False):
+        # default to last
         if stop is None:
             stop = self.tell()[0], -1
+
+        # relative
+        if isinstance(stop, int):
+            if stop < 0:
+                stop *= -1
+                yield self.current()
+                try:
+                    while True:
+                        stop -= 1
+                        pos, pkt = self._prev()
+                        if not stop:
+                            if inclusive:
+                                yield pkt
+                            break
+                        yield pkt
+                except StopIteration:
+                    pass
+            else:
+                yield self.current()
+                try:
+                    while True:
+                        stop -= 1
+                        pos, pkt = self._next()
+                        if not stop:
+                            if inclusive:
+                                yield pkt
+                            break
+                        yield pkt
+                except StopIteration:
+                    pass
+            return
+
+        # last
         if stop[1] == -1:
             with self.restoring():
                 self.seek(stop)
                 stop = self.tell()
             inclusive = True
+
+        # absolute
         if stop < self.tell():
             yield self.current()
             try:

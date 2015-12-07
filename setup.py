@@ -72,6 +72,7 @@ extras_require = {
         'pytest-cache >=1.0,<2',
         'pytest-cov >=1.7,<2',
         'pytest-pep8 >=1.0.6,<2',
+        'pytest-xdist >=1.13.1,<2',
     ],
 }
 

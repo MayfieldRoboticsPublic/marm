@@ -214,3 +214,29 @@ def test_rtp_audio_samples(fixtures, tmpdir, store, samples):
         p.strpath, packet_type=marm.opus.OpusRTPPacket,
     )
     assert sum(pkt.data.nb_samples for pkt in pkts) == samples
+
+
+@pytest.mark.parametrize(
+    ('src,pkt_type,expected'), [
+        ('sonic-v.mjr', marm.vp8.VP8RTPPacket, {
+             'bit_rate': 4000000,
+             'frame_rate': 30.127814972610544,
+             'height': 240,
+             'pix_fmt': marm.frame.VideoFrame.PIX_FMT_YUV420P,
+             'width': 320
+         }),
+        ('sonic-a.mjr', marm.opus.OpusRTPPacket, {
+             'bit_rate': 96000,
+             'channel_layout': 4,
+             'sample_rate': 48000
+         }),
+    ],
+)
+def test_rtp_cursor_probe(fixtures, src, pkt_type, expected):
+    src = fixtures.join(src)
+    cur = marm.rtp.RTPCursor(
+        [src.strpath],
+        packet_type=pkt_type,
+    )
+    result = cur.probe()
+    assert result == expected
