@@ -1,9 +1,13 @@
 import itertools
+import logging
 import math
 
 import pytest
 
 import marm
+
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.mark.parametrize(
@@ -25,6 +29,8 @@ def test_mpegts_last_ccs(fixtures, mpegts, ccs):
          'sonic-a.mjr', marm.opus.OpusRTPPacket, '44100',
          (10, 55),
          [5, 6, 7, 10, 5], [
+            # NOTE: manually check that stitched output is good (e.g. versus
+            # full output `--mpegts-full`) and record stitches like this.
             {'a_cut': ((0, 0), (0, 250)),
              'a_first_pts': None,
              'a_range': (1, 214),
@@ -55,7 +61,7 @@ def test_mpegts_last_ccs(fixtures, mpegts, ccs):
              'a_range': (17, 531),
              'a_start_sample': 536,
              'v_cut': ((0, 1868), (0, 2086), (0, 2306), 87)}
-        ]),
+         ]),
         ('sonic-v.mjr', marm.vp8.VP8RTPPacket, '24',
          'sonic-a.mjr', marm.opus.OpusRTPPacket, '44100',
          (0, 60),
@@ -85,7 +91,6 @@ def test_mpegts_last_ccs(fixtures, mpegts, ccs):
              'a_range': (16, 531),
              'a_start_sample': 541,
              'v_cut': ((0, 1699), (0, 2606), (0, 3498), 417)}
-
          ]),
         ('sonic-v.mjr', marm.vp8.VP8RTPPacket, '24',
          'sonic-a.mjr', marm.opus.OpusRTPPacket, '44100',
@@ -134,7 +139,7 @@ def test_mpegts_stitch_one(
         v_clock = min(
             pkt.msecs for pkt in marm.rtp.head_packets(v_cur)
         )
-    
+
     # a
     a_cur = marm.rtp.RTPCursor([a_mjr.strpath], packet_type=a_pkt_type)
     with a_cur.restoring():
@@ -169,8 +174,9 @@ def test_mpegts_stitch_one(
         )
         tss.append(ts)
         ss.append(s)
+        logger.info('stitch %s=%s', pytest.pformat(s))
         prev_ts = ts
-    
+
     # expected
     assert ss == stitches
 
@@ -185,61 +191,61 @@ def test_mpegts_stitch_one(
          'sonic-a.mjr', marm.opus.OpusRTPPacket, '44100',
          (0, 20),
          [5, 6, 7], [
-         {'a_cut': ((0, 0), (1, 0)),
-          'a_first_pts': None,
-          'a_range': (1, 214),
-          'a_start_sample': None,
-          'v_cut': ((0, 0), (0, 0), (0, 160), 0)},
-         {'a_cut': ((1, 0), (2, 0)),
-          'a_first_pts': 447216,
-          'a_range': (16, 273),
-          'a_start_sample': 997,
-          'v_cut': ((0, 160), (0, 160), (1, 225), 0)},
-         {'a_cut': ((2, 0), (3, 0)),
-          'a_first_pts': 986383,
-          'a_range': (16, 317),
-          'a_start_sample': 553,
-          'v_cut': ((0, 160), (1, 225), (2, 360), 166)},
-         {'a_cut': ((3, 0), (3, 98)),
-          'a_first_pts': 1617501,
-          'a_range': (17, 100),
-          'a_start_sample': 35,
-          'v_cut': ((0, 160), (2, 360), (3, 91), 375)},
+            {'a_cut': ((0, 0), (1, 0)),
+             'a_first_pts': None,
+             'a_range': (1, 214),
+             'a_start_sample': None,
+             'v_cut': ((0, 0), (0, 0), (0, 160), 0)},
+            {'a_cut': ((1, 0), (2, 0)),
+             'a_first_pts': 447216,
+             'a_range': (16, 273),
+             'a_start_sample': 997,
+             'v_cut': ((0, 160), (0, 160), (1, 225), 0)},
+            {'a_cut': ((2, 0), (3, 0)),
+             'a_first_pts': 986383,
+             'a_range': (16, 317),
+             'a_start_sample': 553,
+             'v_cut': ((0, 160), (1, 225), (2, 360), 166)},
+            {'a_cut': ((3, 0), (3, 98)),
+             'a_first_pts': 1617501,
+             'a_range': (17, 100),
+             'a_start_sample': 35,
+             'v_cut': ((0, 160), (2, 360), (3, 91), 375)},
          ]),
         ('sonic-v.mjr', marm.vp8.VP8RTPPacket, '30',
          'sonic-a.mjr', marm.opus.OpusRTPPacket, '48k',
          (0, 40),
          [5, 6, 7, 3, 5], [
-         {'a_cut': ((0, 0), (1, 0)),
-          'a_first_pts': None,
-          'a_range': (1, 233),
-          'a_start_sample': None,
-          'v_cut': ((0, 0), (0, 0), (0, 160), 0)},
-         {'a_cut': ((1, 0), (2, 0)),
-          'a_first_pts': 447360,
-          'a_range': (18, 298),
-          'a_start_sample': 384,
-          'v_cut': ((0, 160), (0, 160), (1, 225), 0)},
-         {'a_cut': ((2, 0), (3, 0)),
-          'a_first_pts': 986880,
-          'a_range': (18, 345),
-          'a_start_sample': 128,
-          'v_cut': ((0, 160), (1, 225), (2, 360), 166)},
-         {'a_cut': ((3, 0), (4, 0)),
-          'a_first_pts': 1616640,
-          'a_range': (17, 157),
-          'a_start_sample': 1024,
-          'v_cut': ((0, 160), (2, 360), (3, 152), 375)},
-         {'a_cut': ((4, 0), (5, 0)),
-          'a_first_pts': 1887360,
-          'a_range': (18, 251),
-          'a_start_sample': 384,
-          'v_cut': ((3, 55), (3, 152), (4, 289), 57)},
-         {'a_cut': ((5, 0), (5, 694)),
-          'a_first_pts': 2336640,
-          'a_range': (17, 667),
-          'a_start_sample': 1024,
-          'v_cut': ((3, 55), (4, 289), (5, 851), 206)},
+            {'a_cut': ((0, 0), (1, 0)),
+             'a_first_pts': None,
+             'a_range': (1, 233),
+             'a_start_sample': None,
+             'v_cut': ((0, 0), (0, 0), (0, 160), 0)},
+            {'a_cut': ((1, 0), (2, 0)),
+             'a_first_pts': 447360,
+             'a_range': (18, 298),
+             'a_start_sample': 384,
+             'v_cut': ((0, 160), (0, 160), (1, 225), 0)},
+            {'a_cut': ((2, 0), (3, 0)),
+             'a_first_pts': 986880,
+             'a_range': (18, 345),
+             'a_start_sample': 128,
+             'v_cut': ((0, 160), (1, 225), (2, 360), 166)},
+            {'a_cut': ((3, 0), (4, 0)),
+             'a_first_pts': 1616640,
+             'a_range': (17, 157),
+             'a_start_sample': 1024,
+             'v_cut': ((0, 160), (2, 360), (3, 152), 375)},
+            {'a_cut': ((4, 0), (5, 0)),
+             'a_first_pts': 1887360,
+             'a_range': (18, 251),
+             'a_start_sample': 384,
+             'v_cut': ((3, 55), (3, 152), (4, 289), 57)},
+            {'a_cut': ((5, 0), (5, 694)),
+             'a_first_pts': 2336640,
+             'a_range': (17, 667),
+             'a_start_sample': 1024,
+             'v_cut': ((3, 55), (4, 289), (5, 851), 206)},
          ]),
     ]
 )
@@ -335,93 +341,94 @@ def test_mpegts_stitch_many(
          (10, 70),
          [5] * 10,
          (4, 1, 0), [
-         {'a_cut': ((0, 0), (0, 249)),
-          'a_first_pts': None,
-          'a_range': (1, 213),
-          'a_start_sample': None,
-          'v_cut': ((0, 0), (0, 0), (0, 272), 0)},
-         {'a_cut': ((0, 249), (1, 249)),
-          'a_first_pts': 445126,
-          'a_range': (16, 230),
-          'a_start_sample': 843,
-          'v_cut': ((0, 0), (0, 272), (1, 297), 149)},
-         {'a_cut': ((1, 249), (2, 249)),
-          'a_first_pts': 894434,
-          'a_range': (16, 231),
-          'a_start_sample': 474,
-          'v_cut': ((0, 0), (1, 297), (2, 316), 297)},
-         {'a_cut': ((2, 249), (3, 245)),
-          'a_first_pts': 1345830,
-          'a_range': (17, 228),
-          'a_start_sample': 103,
-          'v_cut': ((2, 302), (2, 316), (3, 300), 1)},
-         {'a_cut': ((3, 245), (4, 249)),
-          'a_first_pts': 1796066,
-          'a_range': (17, 231),
-          'a_start_sample': 229,
-          'v_cut': ((2, 302), (3, 300), (4, 321), 150)},
-         {'a_cut': ((3, 249), (4, 249)),
-          'a_first_pts': 2245370,
-          'a_range': (16, 230),
-          'a_start_sample': 973,
-          'v_cut': ((1, 302), (3, 321), (4, 345), 300)},
-         {'a_cut': ((3, 249), (4, 249)),
-          'a_first_pts': 2694676,
-          'a_range': (16, 231),
-          'a_start_sample': 603,
-          'v_cut': ((0, 302), (3, 345), (4, 377), 451)},
-         {'a_cut': ((3, 249), (4, 249)),
-          'a_first_pts': 3146073,
-          'a_range': (17, 231),
-          'a_start_sample': 233,
-          'v_cut': ((3, 3), (3, 377), (4, 375), 147)},
-         {'a_cut': ((3, 249), (4, 249)),
-          'a_first_pts': 3595379,
-          'a_range': (16, 230),
-          'a_start_sample': 978,
-          'v_cut': ((2, 3), (3, 375), (4, 363), 297)},
-         {'a_cut': ((3, 249), (4, 249)),
-          'a_first_pts': 4044687,
-          'a_range': (16, 231),
-          'a_start_sample': 608,
-          'v_cut': ((1, 3), (3, 363), (4, 458), 446)},
-         {'a_cut': ((3, 249), (4, 498)),
-          'a_first_pts': 4496083,
-          'a_range': (17, 445),
-          'a_start_sample': 238,
-          'v_cut': ((3, 4), (3, 458), (4, 75), 147)},
+            {'a_cut': ((0, 0), (0, 249)),
+             'a_first_pts': None,
+             'a_range': (1, 213),
+             'a_start_sample': None,
+             'v_cut': ((0, 0), (0, 0), (0, 272), 0)},
+            {'a_cut': ((0, 249), (1, 249)),
+             'a_first_pts': 445126,
+             'a_range': (16, 230),
+             'a_start_sample': 843,
+             'v_cut': ((0, 0), (0, 272), (1, 297), 149)},
+            {'a_cut': ((1, 249), (2, 249)),
+             'a_first_pts': 894434,
+             'a_range': (16, 231),
+             'a_start_sample': 474,
+             'v_cut': ((0, 0), (1, 297), (2, 316), 297)},
+            {'a_cut': ((2, 249), (3, 245)),
+             'a_first_pts': 1345830,
+             'a_range': (17, 228),
+             'a_start_sample': 103,
+             'v_cut': ((2, 302), (2, 316), (3, 300), 1)},
+            {'a_cut': ((3, 245), (4, 249)),
+             'a_first_pts': 1796066,
+             'a_range': (17, 231),
+             'a_start_sample': 229,
+             'v_cut': ((2, 302), (3, 300), (4, 321), 150)},
+            {'a_cut': ((3, 249), (4, 249)),
+             'a_first_pts': 2245370,
+             'a_range': (16, 230),
+             'a_start_sample': 973,
+             'v_cut': ((1, 302), (3, 321), (4, 345), 300)},
+            {'a_cut': ((3, 249), (4, 249)),
+             'a_first_pts': 2694676,
+             'a_range': (16, 231),
+             'a_start_sample': 603,
+             'v_cut': ((0, 302), (3, 345), (4, 377), 451)},
+            {'a_cut': ((3, 249), (4, 249)),
+             'a_first_pts': 3146073,
+             'a_range': (17, 231),
+             'a_start_sample': 233,
+             'v_cut': ((3, 3), (3, 377), (4, 375), 147)},
+            {'a_cut': ((3, 249), (4, 249)),
+             'a_first_pts': 3595379,
+             'a_range': (16, 230),
+             'a_start_sample': 978,
+             'v_cut': ((2, 3), (3, 375), (4, 363), 297)},
+            {'a_cut': ((3, 249), (4, 249)),
+             'a_first_pts': 4044687,
+             'a_range': (16, 231),
+             'a_start_sample': 608,
+             'v_cut': ((1, 3), (3, 363), (4, 458), 446)},
+            {'a_cut': ((3, 249), (4, 498)),
+             'a_first_pts': 4496083,
+             'a_range': (17, 445),
+             'a_start_sample': 238,
+             'v_cut': ((3, 4), (3, 458), (4, 75), 147)},
          ]),
         ('sonic-v.mjr', marm.vp8.VP8RTPPacket, None,
          'sonic-a.mjr', marm.opus.OpusRTPPacket, None,
          (10, 70),
          [6.5] * 7,
          (3, 2, 0), [
-         {'a_cut': ((0, 0), (1, 324)),
-          'a_first_pts': None,
-          'a_range': (1, 607),
-          'a_start_sample': None,
-          'v_cut': ((0, 0), (0, 0), (1, 386), 0)},
-         {'a_cut': ((1, 324), (3, 324)),
-          'a_first_pts': 1165440,
-          'a_range': (18, 623),
-          'a_start_sample': 320,
-          'v_cut': ((0, 0), (1, 386), (3, 422), 388)},
-         {'a_cut': ((2, 324), (4, 324)),
-          'a_first_pts': 2336160,
-          'a_range': (18, 626),
-          'a_start_sample': 704,
-          'v_cut': ((1, 121), (2, 422), (4, 492), 330)},
-         {'a_cut': ((2, 324), (4, 723)),
-          'a_first_pts': 3505440,
-          'a_range': (18, 1000),
-          'a_start_sample': 320,
-          'v_cut': ((1, 283), (2, 492), (4, 491), 266)},
+            {'a_cut': ((0, 0), (1, 324)),
+             'a_first_pts': None,
+             'a_range': (1, 607),
+             'a_start_sample': None,
+             'v_cut': ((0, 0), (0, 0), (1, 386), 0)},
+            {'a_cut': ((1, 324), (3, 324)),
+             'a_first_pts': 1165440,
+             'a_range': (18, 623),
+             'a_start_sample': 320,
+             'v_cut': ((0, 0), (1, 386), (3, 422), 388)},
+            {'a_cut': ((2, 324), (4, 324)),
+             'a_first_pts': 2336160,
+             'a_range': (18, 626),
+             'a_start_sample': 704,
+             'v_cut': ((1, 121), (2, 422), (4, 492), 330)},
+            {'a_cut': ((2, 324), (4, 723)),
+             'a_first_pts': 3505440,
+             'a_range': (18, 1000),
+             'a_start_sample': 320,
+             'v_cut': ((1, 283), (2, 492), (4, 491), 266)},
          ]),
     ]
 )
 def test_mpegts_stitch_window(
         tmpdir,
         fixtures,
+        mpegts_full,
         v_mjr, v_pkt_type, frame_rate,
         a_mjr, a_pkt_type, sample_rate,
         time_range,
@@ -481,6 +488,20 @@ def test_mpegts_stitch_window(
             pkt.msecs for pkt in marm.rtp.head_packets(a_cur)
         )
 
+    # full
+    if mpegts_full:
+        v_cuts, a_cuts = time_cut(v_cur, a_cur)
+        ts_full, _ = xcode_full(
+            tmpdir.join('f.ts'),
+            v_cur, v_prof, v_clock,
+            a_cur, a_prof, a_clock,
+            (v_cuts[0][0], v_cuts[0][1], v_cuts[-1][2], v_cuts[0][3]),
+            (a_cuts[0][0], a_cuts[-1][1]),
+            frame_rate=frame_rate,
+            sample_rate=sample_rate,
+        )
+        logger.info('full=%s', ts_full)
+
     # segments
     tss, ss = [], []
     prev_ts = None
@@ -529,9 +550,15 @@ def test_mpegts_stitch_window(
         )
         tss.append(ts)
         ss.append(s)
+        logger.info('stitch[%s]=%s', j, s)
         prev_ts = ts
-        
+
     assert stitches == ss
+
+    # concat
+    if mpegts_full:
+        ts = concat(tmpdir.join('c.ts'), *tss)
+        logger.info('concat=%s', ts_full)
 
 
 @pytest.mark.parametrize(
@@ -791,7 +818,7 @@ def xcode_full(
         v_cur, v_prof, v_clock, (v_key, v_start, v_stop, v_drop),
         a_cur, a_prof, a_clock, (a_start, a_stop),
     )
-    
+
     # xcode src to padded dst
     tsp = dst.dirpath('{0}-p{1}'.format(dst.purebasename, dst.ext))
     v_filter = ['select=gte(n\,{0})'.format(v_drop)]
@@ -1040,7 +1067,7 @@ def xcode_segment(
             dstp.strpath,
         ])
         xcode()
-    
+
         # remux padded dst to dst
         a_drop = sum(1 for _ in itertools.takewhile(
             lambda pkt: pkt['pts'] < a_first_pts,

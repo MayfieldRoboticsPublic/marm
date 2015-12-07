@@ -9,7 +9,6 @@ import datetime
 import inspect
 import itertools
 import logging
-import math
 import os
 import StringIO
 import struct

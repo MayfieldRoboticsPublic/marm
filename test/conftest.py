@@ -13,6 +13,7 @@ import marm
 def pytest_namespace():
     return {
         'pprint': pprint.pprint,
+        'pformat': pprint.pformat,
         'probe': probe,
         'mux': mux,
     }
@@ -21,6 +22,7 @@ def pytest_namespace():
 def pytest_addoption(parser):
     parser.addoption('--log-level', choices=['d', 'i', 'w', 'e'], default='w')
     parser.addoption('--log-file')
+    parser.addoption('--mpegts-full', action='store_true', default=False)
 
 
 @pytest.fixture(scope='session')
@@ -117,3 +119,8 @@ def mux(out_path, v_path, v_pkt, v_enc, a_path, a_pkt, a_enc):
             },
             audio_packets=marm.Frames(a_cur, -a_prof['msec_org']),
         )
+
+
+@pytest.fixture(scope='session')
+def mpegts_full(pytestconfig):
+    return pytestconfig.getoption('mpegts_full')
