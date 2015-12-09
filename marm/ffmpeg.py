@@ -41,11 +41,11 @@ class Process(subprocess.Popen):
     def as_line(cls, args):
         return ' '.join(
             [cls.bin] +
-            [pipes.quote(str(arg)) for arg in args]
+            [pipes.quote(str(arg)) for arg in args if arg]
         )
 
     def __init__(self, args, **kwargs):
-        args = [self.bin] + map(str, args)
+        args = [self.bin] + [str(arg) for arg in args if arg]
         self.line = subprocess.list2cmdline(args)
         super(Process, self).__init__(
             args,
@@ -211,6 +211,19 @@ class FFProbe(Process):
             for s in probe.result['streams']
         )
         return c
+
+    @classmethod
+    def for_first_packet(cls, *args, **kwargs):
+        window = kwargs.pop('window', 10)
+        probe = cls(['-show_format', '-show_packets'] + list(args), **kwargs)
+        probe()
+        n = {}
+        for idx in range(probe.result['format']['nb_streams']):
+            w = sorted(itertools.islice((
+                p for p in reversed(probe.result['packets']) if p['stream_index'] == idx
+            ), window), key=lambda p: p['pts'])
+            n[idx] = w[0] if w else None
+        return n
 
     @classmethod
     def for_last_packet(cls, *args, **kwargs):
