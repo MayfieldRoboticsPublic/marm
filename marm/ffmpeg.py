@@ -5,6 +5,7 @@ from datetime import timedelta
 import json
 import itertools
 import logging
+import pipes
 import re
 import subprocess
 
@@ -36,6 +37,13 @@ class Process(subprocess.Popen):
     #: Error type.
     Error = Error
 
+    @classmethod
+    def as_line(cls, args):
+        return ' '.join(
+            [cls.bin] +
+            [pipes.quote(str(arg)) for arg in args]
+        )
+
     def __init__(self, args, **kwargs):
         args = [self.bin] + map(str, args)
         self.line = subprocess.list2cmdline(args)
@@ -47,7 +55,6 @@ class Process(subprocess.Popen):
         )
 
     def __call__(self, error='raise'):
-        logger.debug('%s ...', self.line)
         stdout, stderr = self.communicate()
         log_level = (logging.ERROR if self.returncode != 0 else self.log_level)
         logging.log(
@@ -183,7 +190,7 @@ class FFProbe(Process):
     def for_packets(cls, *args, **kwargs):
         munge = kwargs.pop('munge', None)
         bucket = kwargs.pop('bucket', True)
-        probe = cls(['-show_packets'] + list(args))
+        probe = cls(['-show_packets'] + list(args), **kwargs)
         probe()
         if not bucket and not munge:
             return probe.result['packets']
@@ -196,8 +203,8 @@ class FFProbe(Process):
         return pkts
 
     @classmethod
-    def for_packet_count(cls, *args):
-        probe = cls(['-show_streams', '-count_packets'] + list(args))
+    def for_packet_count(cls, *args, **kwargs):
+        probe = cls(['-show_streams', '-count_packets'] + list(args), **kwargs)
         probe()
         c = dict(
             (s['index'], s['nb_read_packets'])
@@ -208,7 +215,7 @@ class FFProbe(Process):
     @classmethod
     def for_last_packet(cls, *args, **kwargs):
         window = kwargs.pop('window', 10)
-        probe = cls(['-show_format', '-show_packets'] + list(args))
+        probe = cls(['-show_format', '-show_packets'] + list(args), **kwargs)
         probe()
         n = {}
         for idx in range(probe.result['format']['nb_streams']):
@@ -219,14 +226,14 @@ class FFProbe(Process):
         return n
 
     @classmethod
-    def for_duration(cls, *args):
-        probe = cls(['-show_format'] + list(args))
+    def for_duration(cls, *args, **kwargs):
+        probe = cls(['-show_format'] + list(args), **kwargs)
         probe()
         return timedelta(seconds=probe.result['format']['duration'])
 
     @classmethod
-    def for_streams(cls, *args):
-        probe = cls(['-show_streams'] + list(args))
+    def for_streams(cls, *args, **kwargs):
+        probe = cls(['-show_streams'] + list(args), **kwargs)
         probe()
         return dict((s['index'], s) for s in probe.result['streams'])
 
