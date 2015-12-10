@@ -240,3 +240,32 @@ def test_rtp_cursor_probe(fixtures, src, pkt_type, expected):
     )
     result = cur.probe()
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    ('src,pkt_type,map_func,reduce_func,stop,cache,expected'), [
+        ('sonic-a.mjr',
+         marm.opus.OpusRTPPacket,
+         lambda pkt: pkt.data.nb_samples * pkt.data.nb_channels,
+         lambda x, y: x + y,
+         None,
+         True,
+         5756162),
+    ],
+)
+def test_rtp_cursor_compute(
+        fixtures,
+        src,
+        pkt_type,
+        map_func,
+        reduce_func,
+        stop,
+        cache,
+        expected):
+    src = fixtures.join(src)
+    cur = marm.rtp.RTPCursor([src.strpath], packet_type=pkt_type)
+    with cur.restoring():
+        assert cur.compute(map_func, reduce_func, stop, cache) == expected
+    if cache:
+        with cur.restoring():
+            assert cur.compute(map_func, reduce_func, stop, cache) == expected
