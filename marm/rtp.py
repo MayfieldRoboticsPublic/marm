@@ -343,6 +343,10 @@ class RTPCursor(collections.Iterable):
     def probe(self, window=100):
         return self.packet_type.payload_type.probe(self, window)
 
+    @property
+    def is_empty(self):
+        return len(self.parts) == 0
+
     def is_first(self, pos):
         return pos == (0, 0)
 
