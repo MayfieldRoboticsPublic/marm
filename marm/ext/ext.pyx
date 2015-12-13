@@ -487,18 +487,25 @@ cpdef object mux(
         object a_packets,
         object v_profile,
         object v_packets,
-        const char *format_name=NULL):
+        const char *format_name=NULL,
+        object options=None):
     cdef int res = libmarm.MARM_RESULT_OK
     cdef libmarm.marm_ctx_t ctx
     cdef libmarm.marm_mux_a_t a
     cdef int has_a = a_packets is not None
     cdef libmarm.marm_mux_v_t v
     cdef int has_v = v_packets is not None
+    cdef libavutil.AVDictionary *av_opts = NULL
     
     try:
         # context
         marm_ctx(&ctx)
-    
+        
+        # options
+        if options:
+            for i, (key, value) in enumerate(options):
+                libavutil.av_dict_set(&av_opts, <bytes>key, <bytes>value, 0)
+        
         # audio
         if has_a:
             a.ctx = &ctx
@@ -545,9 +552,12 @@ cpdef object mux(
             format_extension,
             &v if has_v else NULL,
             &a if has_a else NULL,
+            av_opts
         )
         marm_error(res)
     finally:
+        if av_opts != NULL:
+            libavutil.av_dict_free(&av_opts)
         if has_a:
             libmarm.marm_mux_a_close(&a)
         if has_v:

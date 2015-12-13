@@ -257,7 +257,6 @@ def test_mpegts_stitch_many(
         time_range,
         time_cuts,
         stitches):
-
     # slice mjrs
     v_mjr = time_slice(
         tmpdir.join('v.mjr'), fixtures.join(v_mjr), v_pkt_type, time_range,
@@ -564,12 +563,14 @@ def test_mpegts_stitch_window(
 @pytest.mark.parametrize(
     'v_store,v_pkt,v_enc,frame_rate,'
     'a_store,a_pkt,a_enc,sample_rate,'
-    'time_range,interval,delta', [
+    'time_range,interval,delta,'
+    'ccs', [
         ('sonic-v.mjr', marm.vp8.VP8RTPPacket, 'libvpx', '24',
          'sonic-a.mjr', marm.opus.OpusRTPPacket, 'libopus', '44100',
          (0, 30),
          5,
-         1.0),
+         1.0,
+         {0: 11, 17: 1, 4096: 11, 256: 3, 257: 5}),
     ]
 )
 def test_mpegts_segment(
@@ -579,7 +580,8 @@ def test_mpegts_segment(
         a_store, a_pkt, a_enc, sample_rate,
         time_range,
         interval,
-        delta):
+        delta,
+        ccs):
     # time slice src
     v_src = time_slice(
         tmpdir.join('v.mjr'),
@@ -631,12 +633,14 @@ def test_mpegts_segment(
         a_cur, a_prof, a_clock,
         v_cuts[0],
         a_cuts[0],
+        ccs=ccs,
         frame_rate=frame_rate,
         sample_rate=sample_rate,
     )
+    with full.open('rb') as fo:
+        full_last_ccs = marm.frame.last_mpegts_ccs(fo)
 
     # split full -> segments
-    ccs = {}
     with full.open('rb') as sfo:
         marm.frame.segment(
             tmpdir.join('s-%03d.ts').strpath,
@@ -669,6 +673,10 @@ def test_mpegts_segment(
             )) < delta
             for pkts in s_pkts.values()[:-1]
         )
+
+    # check segment ccs
+    with sorted(tmpdir.listdir('s-*.ts'))[-1].open('rb') as fo:
+        assert marm.frame.last_mpegts_ccs(fo) == full_last_ccs
 
     # concat segments
     concat = tmpdir.join('c.ts')
@@ -810,6 +818,7 @@ def xcode_full(
         (v_key, v_start, v_stop, v_drop),
         (a_start, a_stop),
         key_frame_rate=5.0,
+        ccs=None,
         frame_rate=None,
         sample_rate=None):
     # mux to src
@@ -863,6 +872,7 @@ def xcode_full(
         marm.frame.remux(
             dfo, sfo,
             marm.FrameFilter.range(1, *a_range),
+            mpegts_ccs=ccs,
             options=[
                 ('copyts', '1'),
                 ('mpegts_copyts', '1'),

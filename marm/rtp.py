@@ -582,7 +582,7 @@ class RTPCursor(collections.Iterable):
             - False
             - "prev"
 
-            If frames span packets (e.g. for video) then alignment moved
+            If frames span packets (e.g. for video) then alignment moves
             positions to first preceding start of frame packet.
 
             "prev" is the same as True but **first** moves positions back
@@ -654,6 +654,13 @@ class RTPCursor(collections.Iterable):
         start_secs = begin_secs + b_dt + b_align_dt
         stop_secs = end_secs + e_dt + e_align_dt
 
+        logger.debug(
+            'time cut @ %s w\ begin_secs=%s, end_secs=%s, align=%s -> '
+            'start=%s, start_secs=%s, stop=%s, stop_secs=%s',
+            org,
+            begin_secs, end_secs, align,
+            start, start_secs, stop, stop_secs,
+        )
         return start, start_secs, stop, stop_secs
 
     def time_positions(self, *args):

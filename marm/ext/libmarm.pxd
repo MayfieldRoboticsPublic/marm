@@ -164,7 +164,8 @@ cdef extern from 'marm.h':
         const char *format_name,
         const char *format_extension,
         marm_mux_v_t *v,
-        marm_mux_a_t *a) except *
+        marm_mux_a_t *a,
+        libavutil.AVDictionary *opts) except *
 
     # remux
 

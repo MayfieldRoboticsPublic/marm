@@ -53,7 +53,8 @@ int marm_mux(
         const char *format_name,
         const char *format_extension,
         marm_mux_v_t *v,
-        marm_mux_a_t *a) {
+        marm_mux_a_t *a,
+        AVDictionary *opts_arg) {
     AVFormatContext *o_ctx = NULL;
     AVOutputFormat *o_fmt = NULL;
     AVStream *v_st = NULL, *a_st = NULL;
@@ -63,6 +64,10 @@ int marm_mux(
     unsigned char *buffer = NULL;
     int buffer_len = 4096;
     file_ctx_t file_ctx = { .ctx = ctx, .file = file };
+
+    AVDictionary *opts = NULL;
+    if (opts_arg)
+        av_dict_copy(&opts, opts_arg, 0);
 
     // output context
     avformat_alloc_output_context2(&o_ctx, NULL, format_name, format_extension);
@@ -105,7 +110,7 @@ int marm_mux(
         v_st->codec->time_base = v_st->time_base;
 
         // context for stream codec
-        res = avcodec_open2(v_st->codec, v->codec, NULL);
+        res = avcodec_open2(v_st->codec, v->codec, &opts);
         if (res < 0) {
             MARM_ERROR(ctx, "could not open codec: %d - %s", res, av_err2str(res));
             res = -1;
@@ -159,7 +164,7 @@ int marm_mux(
         a_st->codec->time_base = a_st->time_base;
 
         // context for stream codec
-        res = avcodec_open2(a_st->codec, a->codec, NULL);
+        res = avcodec_open2(a_st->codec, a->codec, &opts);
         if (res < 0) {
             MARM_ERROR(ctx, "could not open codec: %d - %s", res, av_err2str(res));
             res = -1;
@@ -205,7 +210,7 @@ int marm_mux(
     buffer = NULL;
 
     // write header
-    res = avformat_write_header(o_ctx, NULL);
+    res = avformat_write_header(o_ctx, &opts);
     if (res < 0) {
         MARM_ERROR(ctx, "could not write header: %d - %s", res, av_err2str(res));
         res = -1;
@@ -297,6 +302,10 @@ int marm_mux(
     }
 
 cleanup:
+    if (opts) {
+        av_dict_free(&opts);
+    }
+
     av_free_packet(&v_pkt);
     av_free_packet(&a_pkt);
 

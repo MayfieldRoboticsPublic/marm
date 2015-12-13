@@ -272,7 +272,8 @@ def mux(fo,
         video_packets=None,
         audio_profile=None,
         audio_packets=None,
-        format_extension=None):
+        format_extension=None,
+        **kwargs):
     """
     Muxes encoded video and audio frames (i.e. codec packets) into a container.
     """
@@ -284,6 +285,7 @@ def mux(fo,
         v_packets=video_packets,
         a_profile=audio_profile,
         a_packets=audio_packets,
+        **kwargs
     )
 
 

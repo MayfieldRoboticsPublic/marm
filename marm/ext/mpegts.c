@@ -151,7 +151,7 @@ void reset_mpegts_ccs(
                 MARM_INFO(
                     ctx,
                     "resetting pes (pid=%d) cc %d -> %d",
-                    ccs[i].pid, mpegts->pat.cc, ccs[i].cc
+                    ccs[i].pid, mpegts_st->cc, ccs[i].cc
                 );
                 mpegts_st->cc = ccs[i].cc;
                 break;

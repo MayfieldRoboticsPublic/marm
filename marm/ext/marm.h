@@ -256,7 +256,8 @@ marm_result_t marm_mux(
     int flags,
     const char *format_name, const char *format_extension,
     marm_mux_v_t *v,
-    marm_mux_a_t *a);
+    marm_mux_a_t *a,
+    AVDictionary *opts);
 
 /**
  * Re-mux from one container into another.
