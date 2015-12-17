@@ -220,7 +220,7 @@ class FFProbe(Process):
         n = {}
         for idx in range(probe.result['format']['nb_streams']):
             w = sorted(itertools.islice((
-                p for p in reversed(probe.result['packets']) if p['stream_index'] == idx
+                p for p in probe.result['packets'] if p['stream_index'] == idx
             ), window), key=lambda p: p['pts'])
             n[idx] = w[0] if w else None
         return n
@@ -235,6 +235,19 @@ class FFProbe(Process):
             w = sorted(itertools.islice((
                 p for p in reversed(probe.result['packets']) if p['stream_index'] == idx
             ), window), key=lambda p: p['pts'])
+            n[idx] = w[-1] if w else None
+        return n
+
+    @classmethod
+    def for_first_frame(cls, *args, **kwargs):
+        window = kwargs.pop('window', 10)
+        probe = cls(['-show_format', '-show_frames'] + list(args), **kwargs)
+        probe()
+        n = {}
+        for idx in range(probe.result['format']['nb_streams']):
+            w = sorted(itertools.islice((
+                p for p in reversed(probe.result['frames']) if p['stream_index'] == idx
+            ), window), key=lambda p: p['pkt_pts_time'])
             n[idx] = w[-1] if w else None
         return n
 

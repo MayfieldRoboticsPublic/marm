@@ -389,7 +389,7 @@ class RTPCursor(collections.Iterable):
                         self.pos_part -= 1
                         self.part = self.parts[self.pos_part]
                         if not self.part.is_opened:
-                            self.open()
+                            self.part.open()
                         self.pos_pkt = len(self.part) - 1
                         offset -= 1
                         continue
@@ -408,7 +408,7 @@ class RTPCursor(collections.Iterable):
                         self.pos_pkt = 0
                         self.part = self.parts[self.pos_part]
                         if not self.part.is_opened:
-                            self.open()
+                            self.part.open()
                         offset += 1
                         continue
                     s = min(len(self.part) - self.pos_pkt - 1, offset)
@@ -583,12 +583,15 @@ class RTPCursor(collections.Iterable):
             - "prev"
 
             If frames span packets (e.g. for video) then alignment moves
-            positions to first preceding start of frame packet.
+            positions to first preceding start of frame packet, otherwise it
+			does nothing.
 
-            "prev" is the same as True but **first** moves positions back
-            one **before** doing alignment if position is **not** the last one.
-            This is useful for getting consistent time cuts when reaching the
-            end of the cursor that is later extended with more parts.
+            "prev" is the same as True but **first** moves begin and end
+            positions back one packet **before** doing alignment if position is
+            **not** that of the first or last packet in the cursor. This is
+            useful for getting consistent time cuts when reaching the end of
+            the cursor that is later extended with more parts. You'll typically
+            need millisecond granularity for `begin_secs` and `end_secs` too.
 
         :returns: Tuple of:
 
@@ -674,9 +677,15 @@ class RTPCursor(collections.Iterable):
             pos.append(self.tell())
         return pos
 
-    def prev_to(self, pos):
+    def prev_to(self, pos, count=1):
         self.seek(pos)
-        return self.prev()
+        try:
+            while count:
+                self.prev()
+                count -= 1
+        except StopIteration:
+            pass
+        return count
 
     def prev(self):
         _, pkt = self._prev()
