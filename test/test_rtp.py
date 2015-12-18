@@ -269,3 +269,34 @@ def test_rtp_cursor_compute(
     if cache:
         with cur.restoring():
             assert cur.compute(map_func, reduce_func, stop, cache) == expected
+
+
+@pytest.mark.parametrize(
+    ('srcs,pkt_type,expected'), [
+        ([], marm.vp8.VP8RTPPacket, None),
+        ([], marm.opus.OpusRTPPacket, None),
+        (['sonic-v.mjr'], marm.vp8.VP8RTPPacket, 119.98599999999988),
+        (['sonic-a.mjr'], marm.opus.OpusRTPPacket, 119.97999999999956),
+    ],
+)
+def test_rtp_cursor_interval(fixtures, srcs, pkt_type, expected):
+    cur = marm.rtp.RTPCursor(
+        [fixtures.join(src).strpath for src in srcs],
+        packet_type=pkt_type,
+    )
+    assert cur.interval() == expected
+
+
+@pytest.mark.parametrize(
+    ('srcs,pkt_type,empty,expected'), [
+        (['empty.mjr', 'sonic-v.mjr'], marm.vp8.VP8RTPPacket, False, 1),
+        (['empty.mjr', 'sonic-v.mjr'], marm.vp8.VP8RTPPacket, True, 2),
+    ],
+)
+def test_rtp_cursor_empty(fixtures, srcs, pkt_type, empty, expected):
+    cur = marm.rtp.RTPCursor(
+        [fixtures.join(src).strpath for src in srcs],
+        packet_type=pkt_type,
+        empty=empty,
+    )
+    assert len(cur.parts) == expected

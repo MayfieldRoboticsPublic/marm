@@ -321,18 +321,48 @@ class RTPPacketReader(collections.Iterable):
         finally:
             self.fo.seek(pos)
 
+    @property
+    def is_empty(self):
+        with self.restoring():
+            try:
+                iter(self).next()
+            except StopIteration:
+                return True
+            else:
+                return False
+
 
 class RTPCursor(collections.Iterable):
     """
     Cursor used to iterate over a collection or stored `RTPPacket`s.
     """
 
-    def __init__(self, parts, part_type=None, **part_kwargs):
+    def __init__(
+            self,
+            parts,
+            part_type=None,
+            empty=True,
+            **part_kwargs):
+        """
+        :param parts: Collection of parts that `part_type` can turn into an
+            iterable of `RTPPacket`s. Typically just a list of file paths.
+
+        :param part_type: Type or call-able used to turn each part into an
+            iterable of `RTPPacket`s, typically something implementing
+            `RTPPacketReader`. Defaults to `RTPPacketReader.open`.
+
+        :param empty: When `False` *removes* parts w/o any packets.
+
+        :param part_kwargs: Keyword arguments to be passed to `part_type`.
+
+        """
         self.part_type = part_type or RTPPacketReader.open
         self.packet_type = part_kwargs.get('packet_type', RTPPacket)
         self.parts = [
             self._Part(part, self.part_type, part_kwargs) for part in parts
         ]
+        if empty is False:
+            self.parts = [p for p in self.parts if p.is_empty]
         self.pos_part, self.pos_pkt = 0, 0
         if self.parts:
             self.part = self.parts[self.pos_part]
@@ -540,6 +570,8 @@ class RTPCursor(collections.Iterable):
         # FIXME: sum inter-packet delta w/ reset detection?
         if not pos:
             pos = (-1, -1)
+        if self.is_empty:
+            return None
         start = self.current().secs
         self.seek(pos)
         delta = self.current().secs - start
@@ -864,6 +896,14 @@ class RTPCursor(collections.Iterable):
             self.pkts = None
             self.i = None
             del self.idx[:]
+
+        @property
+        def is_empty(self):
+            return  (
+                len(self.idx) != 0
+                if self.pkts is not None
+                else self.part_type(self.file, **self.part_kwargs).is_empty
+            )
 
         @property
         def name(self):
