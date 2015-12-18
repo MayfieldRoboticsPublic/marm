@@ -289,8 +289,14 @@ def test_rtp_cursor_interval(fixtures, srcs, pkt_type, expected):
 
 @pytest.mark.parametrize(
     ('srcs,pkt_type,empty,expected'), [
-        (['empty.mjr', 'empty.mjr', 'sonic-v.mjr'], marm.vp8.VP8RTPPacket, False, 1),
-        (['empty.mjr', 'empty.mjr', 'sonic-v.mjr'], marm.vp8.VP8RTPPacket, True, 3),
+        (['empty.mjr', 'empty.mjr', 'sonic-v.mjr'],
+         marm.vp8.VP8RTPPacket,
+         False,
+         1),
+        (['empty.mjr', 'empty.mjr', 'sonic-v.mjr'],
+         marm.vp8.VP8RTPPacket,
+         True,
+         3),
     ],
 )
 def test_rtp_cursor_empty(fixtures, srcs, pkt_type, empty, expected):
