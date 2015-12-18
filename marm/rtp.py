@@ -362,7 +362,7 @@ class RTPCursor(collections.Iterable):
             self._Part(part, self.part_type, part_kwargs) for part in parts
         ]
         if empty is False:
-            self.parts = [p for p in self.parts if p.is_empty]
+            self.parts = [p for p in self.parts if not p.is_empty]
         self.pos_part, self.pos_pkt = 0, 0
         if self.parts:
             self.part = self.parts[self.pos_part]
