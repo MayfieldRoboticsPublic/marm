@@ -538,8 +538,8 @@ cpdef object mux(
                 v.time_base.num = v_profile['time_base'][0]
                 v.time_base.den = v_profile['time_base'][1]
             else:
-                v.time_base.num = 1
-                v.time_base.den = v.frame_rate
+                v.time_base.num = 1000
+                v.time_base.den = int(v.frame_rate * 1000)
             res = libmarm.marm_mux_v_open(&v)
             marm_error(res)
         
