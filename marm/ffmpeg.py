@@ -252,10 +252,24 @@ class FFProbe(Process):
         return n
 
     @classmethod
-    def for_duration(cls, *args, **kwargs):
+    def for_format_duration(cls, *args, **kwargs):
         probe = cls(['-show_format'] + list(args), **kwargs)
         probe()
         return timedelta(seconds=probe.result['format']['duration'])
+
+    @classmethod
+    def for_stream_durations(cls, *args, **kwargs):
+        probe = cls(['-show_streams'] + list(args), **kwargs)
+        probe()
+        return [
+            timedelta(seconds=s['duration']) for s in probe.result['streams']
+        ]
+
+    @classmethod
+    def for_stream_duration(cls, *args, **kwargs):
+        probe = cls(['-show_streams'] + list(args), **kwargs)
+        probe()
+        return max(cls.for_stream_durations(*args, **kwargs) + [timedelta()])
 
     @classmethod
     def for_streams(cls, *args, **kwargs):

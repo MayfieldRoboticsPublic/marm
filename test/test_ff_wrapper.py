@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 import marm
@@ -41,3 +43,20 @@ def test_ffprobe_last_packet(fixtures, file_name, args, as_fo, expected):
     else:
         r = marm.FFProbe.for_last_packet(*(args + [p.strpath]))
     assert r == expected
+
+
+@pytest.mark.parametrize(
+    'file_name,expected_stream,expected_format', [
+        ('sonic.ts',
+         timedelta(seconds=120.033333),
+         timedelta(seconds=120.054667)),
+    ]
+)
+def test_ffprobe_duration(
+        fixtures,
+        file_name,
+        expected_stream,
+        expected_format):
+    p = fixtures.join(file_name)
+    assert marm.FFProbe.for_stream_duration(p.strpath) == expected_stream
+    assert marm.FFProbe.for_format_duration(p.strpath) == expected_format
