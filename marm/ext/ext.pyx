@@ -445,7 +445,7 @@ cpdef object generate_video(
         int width=320,
         int height=240,
         int bit_rate=400000,
-        int frame_rate=25):
+        float frame_rate=25):
     cdef int res = libmarm.MARM_RESULT_OK
     
     cdef libmarm.marm_ctx_t ctx

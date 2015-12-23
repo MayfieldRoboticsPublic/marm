@@ -122,7 +122,7 @@ typedef struct marm_gen_v_s {
     int width;
     int height;
     int bit_rate;
-    int frame_rate;
+    float frame_rate;
     AVCodec *codec;
     AVCodecContext *codec_ctx;
     AVFrame *frame;
@@ -203,7 +203,7 @@ typedef struct marm_mux_v_s {
     int width;
     int height;
     int bit_rate;
-    int frame_rate;
+    float frame_rate;
     AVRational time_base;
     AVCodec *codec;
     AVStream *st;

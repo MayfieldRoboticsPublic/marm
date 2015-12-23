@@ -267,8 +267,6 @@ class FFProbe(Process):
 
     @classmethod
     def for_stream_duration(cls, *args, **kwargs):
-        probe = cls(['-show_streams'] + list(args), **kwargs)
-        probe()
         return max(cls.for_stream_durations(*args, **kwargs) + [timedelta()])
 
     @classmethod

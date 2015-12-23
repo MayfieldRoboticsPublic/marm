@@ -66,8 +66,8 @@ class Frame(object):
         self.pts, self.flags, self.data = pts, flags, data
 
     def pack(self, fo=None):
-        fo, value = StringIO.StringIO(), True if fo is None else fo, False
-        fo.write(struct.pack('=qqii', self.pts, self.flags, len(self.data)))
+        fo, value = (StringIO.StringIO(), True) if fo is None else (fo, False)
+        fo.write(struct.pack('=qii', self.pts, self.flags, len(self.data)))
         fo.write(self.data)
         if value:
             return fo.getvalue()
@@ -119,7 +119,8 @@ class AudioFrame(Frame):
     CHANNEL_LAYOUT_STEREO = ext.AV_CH_LAYOUT_STEREO
 
     def __init__(self, *args, **kwargs):
-        kwargs['flags'] = kwargs.pop('flags', 0) | Frame.FLAG_KEY_FRAME
+        if not(len(args) == 1 and not kwargs):
+            kwargs['flags'] = kwargs.pop('flags', 0) | Frame.FLAG_KEY_FRAME
         super(AudioFrame, self).__init__(*args, **kwargs)
 
 
@@ -398,9 +399,8 @@ class VideoHeader(collections.namedtuple('VideoHeader', [
     ])):
 
     def pack(self):
-        fmt = '=B{0}sB{1}siiiii'.format(len('video'), len(self.encoder_name))
+        fmt = '=B{0}siiiif'.format(len(self.encoder_name))
         buf = struct.pack(fmt,
-            len('video'), b'video',
             len(self.encoder_name), self.encoder_name.encode('ascii'),
             self.pix_fmt,
             self.width,
@@ -412,7 +412,7 @@ class VideoHeader(collections.namedtuple('VideoHeader', [
 
     @classmethod
     def unpack(cls, fo):
-        return cls(*((read_string(fo),) + read_struct(fo, 'iiiii')))
+        return cls(*((read_string(fo),) + read_struct(fo, 'iiiif')))
 
 
 class AudioHeader(collections.namedtuple('AudioHeader', [
@@ -423,9 +423,8 @@ class AudioHeader(collections.namedtuple('AudioHeader', [
     ])):
 
     def pack(self):
-        fmt = '=B{0}sB{1}siiQ'.format(len('audio'), len(self.encoder_name))
+        fmt = '=B{0}siiQ'.format(len(self.encoder_name))
         buf = struct.pack(fmt,
-            len('audio'), 'audio',
             len(self.encoder_name), self.encoder_name,
             self.bit_rate,
             self.sample_rate,

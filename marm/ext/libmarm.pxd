@@ -75,7 +75,7 @@ cdef extern from 'marm.h':
         int width
         int height
         int bit_rate
-        int frame_rate
+        float frame_rate
 
     ctypedef marm_gen_v_s marm_gen_v_t
 
@@ -129,7 +129,7 @@ cdef extern from 'marm.h':
         int width
         int height
         int bit_rate
-        int frame_rate
+        float frame_rate
         libavutil.AVRational time_base
 
     ctypedef marm_mux_v_s marm_mux_v_t
