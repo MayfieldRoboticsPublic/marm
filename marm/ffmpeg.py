@@ -84,10 +84,8 @@ class FFMPEG(Process):
     def format_interval(cls, d):
         ts = d.total_seconds()
         return (
-            '{hours:02}:{minutes:02}:{seconds:02}.{millisecond:03}'
+            '{seconds}.{millisecond}'
             .format(
-                hours=0,
-                minutes=0,
                 seconds=int(ts),
                 millisecond=int((ts - int(ts)) * 1000),
             )
