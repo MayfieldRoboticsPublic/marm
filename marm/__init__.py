@@ -56,7 +56,7 @@ which you can do e.g. like:
         )
 
 """
-__version__ = '0.2.7'
+__version__ = '0.2.8'
 
 __all__ = [
     'Frame',
