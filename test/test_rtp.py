@@ -306,3 +306,22 @@ def test_rtp_cursor_empty(fixtures, srcs, pkt_type, empty, expected):
         empty=empty,
     )
     assert len(cur.parts) == expected
+
+
+@pytest.mark.parametrize(
+    ('srcs,pkt_type,expected'), [
+        (['padded-v.mjr'], marm.vp8.VP8RTPPacket, {
+             'pix_fmt': marm.VideoFrame.PIX_FMT_YUV420P,
+             'width': 640,
+             'height': 480,
+             'bit_rate': 4000000,
+             'frame_rate': 29.49940405244543,
+         }),
+    ],
+)
+def test_rtp_cursor_padded(fixtures, srcs, pkt_type, expected):
+    cur = marm.rtp.RTPCursor(
+        [fixtures.join(src).strpath for src in srcs],
+        packet_type=pkt_type,
+    )
+    assert cur.probe() == expected

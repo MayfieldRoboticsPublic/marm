@@ -32,8 +32,10 @@ class MJRRTPPacketReader(rtp.RTPPacketReader):
     def __iter__(self):
 
         def pkts():
+            print
             for buf in read_packets(self.fo):
-                pkt = self.packet_type(buf)
+                # NOTE: janus appears to de-pad rtp packets it records
+                pkt = self.packet_type(buf, depadded=True)
                 if not self.packet_filter(pkt):
                     continue
                 yield pkt

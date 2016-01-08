@@ -173,11 +173,9 @@ class RTPPacket(object):
 
     def __init__(self, *args, **kwargs):
         if args:
-            if kwargs:
-                raise TypeError('Mixed positional and keyword arguments')
-            elif len(args) > 1:
+            if len(args) > 1:
                 raise TypeError('Expected single \'buf\' arg')
-            self.unpack(args[0])
+            self.unpack(args[0], **kwargs)
         elif kwargs:
             if len(kwargs) == 1 and 'buf' in kwargs:
                 self.unpack(kwargs['buf'])
@@ -210,7 +208,7 @@ class RTPPacket(object):
         if value:
             return fo.getvalue()
 
-    def unpack(self, buf):
+    def unpack(self, buf, depadded=True):
         # header
         header = RTPHeader.from_buffer_copy(buf)
         buf = buf[ctypes.sizeof(header):]
@@ -224,7 +222,7 @@ class RTPPacket(object):
             csrcs = []
 
         # padding
-        if header.padding == 1:
+        if not depadded and header.padding == 1:
             pad, = struct.unpack('>B', buf[-1])
             logger.debug('stripping %s rtp pad from data', pad)
             buf = buf[:-pad]
@@ -233,7 +231,7 @@ class RTPPacket(object):
 
         # data
         if self.payload_type:
-            data = self.payload_type(buf)
+            data = self.payload_type(buf) if buf else None
         else:
             data = buf
 
