@@ -1,6 +1,7 @@
 """
 Helpers for interacting w/ ffmpeg and friends.
 """
+import collections
 from datetime import timedelta
 import json
 import itertools
@@ -204,10 +205,10 @@ class FFProbe(Process):
     def for_packet_count(cls, *args, **kwargs):
         probe = cls(['-show_streams', '-count_packets'] + list(args), **kwargs)
         probe()
-        c = dict(
+        c = collections.Counter(dict(
             (s['index'], s['nb_read_packets'])
             for s in probe.result['streams']
-        )
+        ))
         return c
 
     @classmethod
@@ -233,7 +234,8 @@ class FFProbe(Process):
             w = sorted(itertools.islice((
                 p for p in reversed(probe.result['packets']) if p['stream_index'] == idx
             ), window), key=lambda p: p['pts'])
-            n[idx] = w[-1] if w else None
+            if w:
+                n[idx] = w[-1]
         return n
 
     @classmethod
@@ -272,6 +274,12 @@ class FFProbe(Process):
         probe = cls(['-show_streams'] + list(args), **kwargs)
         probe()
         return dict((s['index'], s) for s in probe.result['streams'])
+
+    @classmethod
+    def for_frame_rate(cls, *args, **kwargs):
+        probe = cls(['-show_streams', '-select_streams', 'v'] + list(args), **kwargs)
+        probe()
+        return probe.result['streams'][0]['avg_frame_rate']
 
     # Process
 

@@ -8,7 +8,6 @@ import marm
 @pytest.mark.parametrize(
     'file_name,args,as_fo,expected', [
         ('sonic.ts', ['-select_streams', 'a'], False, {
-            0: None,
             1: {'codec_type': u'audio',
                 'dts': 10931520,
                 'dts_time': 121.461333,
@@ -21,7 +20,6 @@ import marm
                 'stream_index': 1}
          }),
         ('sonic.ts', ['-select_streams', 'a'], True, {
-            0: None,
             1: {'codec_type': u'audio',
                 'dts': 10931520,
                 'dts_time': 121.461333,
