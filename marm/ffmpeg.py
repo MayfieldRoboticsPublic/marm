@@ -83,10 +83,11 @@ class FFMPEG(Process):
 
     @classmethod
     def format_interval(cls, d):
-        ts = d.total_seconds()
+        ts = abs(d.total_seconds())
         return (
-            '{seconds}.{millisecond}'
+            '{sign}{seconds}.{millisecond}'
             .format(
+                sign='-' if d.total_seconds() < 0 else '',
                 seconds=int(ts),
                 millisecond=int((ts - int(ts)) * 1000),
             )
@@ -113,7 +114,7 @@ class FFProbeResult(dict):
                     _for_sequence(v)
                 elif isinstance(v, basestring):
                     obj[k] = cls._parse_string(v)
-                
+
 
         def _for_sequence(obj):
             for k, v in enumerate(obj):
@@ -129,7 +130,7 @@ class FFProbeResult(dict):
         return obj
 
     # internals
-    
+
     @classmethod
     def _parse_string(cls, txt):
         for r, p in cls._VALUE_PARSERS:
@@ -178,7 +179,7 @@ class FFProbe(Process):
 
     #: Parsed stdout as `FFProbeResult`.
     result = None
-    
+
     def __init__(self, *args, **kwars):
         args[0].extend([
             '-print_format', 'json',
@@ -246,7 +247,9 @@ class FFProbe(Process):
         n = {}
         for idx in range(probe.result['format']['nb_streams']):
             w = sorted(itertools.islice((
-                p for p in reversed(probe.result['frames']) if p['stream_index'] == idx
+                p
+                for p in reversed(probe.result['frames'])
+                if p['stream_index'] == idx
             ), window), key=lambda p: p['pkt_pts_time'])
             n[idx] = w[-1] if w else None
         return n
@@ -262,7 +265,9 @@ class FFProbe(Process):
         probe = cls(['-show_streams'] + list(args), **kwargs)
         probe()
         return [
-            timedelta(seconds=s['duration']) for s in probe.result['streams']
+            timedelta(seconds=s['duration'])
+            for s in probe.result['streams']
+            if 'duration' in s
         ]
 
     @classmethod
@@ -277,7 +282,10 @@ class FFProbe(Process):
 
     @classmethod
     def for_frame_rate(cls, *args, **kwargs):
-        probe = cls(['-show_streams', '-select_streams', 'v'] + list(args), **kwargs)
+        probe = cls(
+            ['-show_streams', '-select_streams', 'v'] + list(args),
+            **kwargs
+        )
         probe()
         return probe.result['streams'][0]['avg_frame_rate']
 

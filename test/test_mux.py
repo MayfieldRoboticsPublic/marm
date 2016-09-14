@@ -268,6 +268,7 @@ def test_concat_muxed(
     cmd = [
         ffmpeg,
         '-f', 'concat',
+        '-safe', '0',
         '-i', str(c_txt_path),
         '-c', 'copy',
         str(c_path),
