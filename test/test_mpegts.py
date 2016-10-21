@@ -662,7 +662,7 @@ def test_mpegts_segment(
 
         # videos start w/ keyframe
         assert all(
-            s_pkts[idx][0]['flags'] == 'K'
+            s_pkts[idx][0]['flags'] == 'K_'
             for idx in s_pkts.keys() if s_pkts[idx][0]['codec_type'] == 'video'
         )
 

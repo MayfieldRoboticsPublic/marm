@@ -166,7 +166,7 @@ class FFProbe(Process):
 
         # succeeded
         assert ffprobe.returncode == 0
-        
+
         # and here are the results
         assert isinstance(ffprobe.result, FFProbe.Result)
         assert isinstance(ffprobe.result['format'], dict)
